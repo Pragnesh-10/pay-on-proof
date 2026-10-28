@@ -10,7 +10,7 @@ The strongest fit is **AI Agents or Automation** because the backend does more t
 
 ## Is this really an agent if the model cannot call PayPal?
 
-The product is an agentic workflow with a deliberately separated transaction executor. The LLM can assess a narrow semantic criterion, but deterministic backend policy—not model tool access—decides whether a capture is allowed. The existing controlled task workflow can transact after the operator starts it; custom artifact captures require a separate explicit confirmation. This preserves control while still demonstrating that the system performs a transaction, not merely a recommendation.
+The product is a bounded agentic workflow with a deliberately separated transaction executor. In the predefined demo, the optional LLM assesses a narrow semantic criterion; the custom artifact workflow applies explicit structural rules. After the operator confirms a workflow, the backend evaluates and records the artifact, then can request one PayPal sandbox capture only for a newly recorded PASS. Deterministic backend policy—not model tool access—controls the capture. REVIEW and FAIL fail closed, and previously recorded tasks are not auto-captured again.
 
 ## What is the key idea?
 
@@ -34,7 +34,7 @@ We do not claim a validated accuracy percentage. The repository includes a small
 
 ## Can the artifact upload automatically move money?
 
-No. Preview and save operations never call PayPal payment endpoints. A separate capture action is available only for a persisted artifact task that has PASS; the backend rechecks current PayPal authorization status, available budget, unresolved captures, and duplicate attempts before making a partial capture request. FAIL and REVIEW are blocked.
+Preview and save-only operations never call PayPal payment endpoints. The explicit, confirmed agent workflow can request one partial capture for a newly recorded PASS artifact task; it cannot capture FAIL or REVIEW, and it does not auto-capture a previously recorded task again. Before a capture, the backend rechecks current PayPal authorization status, available budget, unresolved captures, and duplicate attempts. A separate manual capture action remains available for a saved PASS task after the operator inspects it.
 
 ## How can a Proof Receipt be checked?
 
