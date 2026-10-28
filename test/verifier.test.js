@@ -85,6 +85,88 @@ test("valid AI review result is retained with provenance", () => {
   assert.equal(result.model, "test-model");
 });
 
+
+test("OpenAI semantic PASS is parsed from the raw Responses API output array", async () => {
+  const previousFetch = global.fetch;
+  let requestBody;
+  let requestHeaders;
+  global.fetch = async (_url, options) => {
+    requestBody = JSON.parse(options.body);
+    requestHeaders = options.headers;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: "resp_test",
+        status: "completed",
+        output: [
+          {
+            type: "message",
+            content: [
+              {
+                type: "output_text",
+                text: JSON.stringify({
+                  decision: "PASS",
+                  reason: "The summary states a clear result.",
+                }),
+              },
+            ],
+          },
+        ],
+      }),
+    };
+  };
+
+  try {
+    const result = await verifyWithOpenAI(
+      {
+        acceptance: "The summary communicates a meaningful result.",
+        evidence: { title: "Report", summary: "Revenue increased." },
+      },
+      { apiKey: "test-key", model: "test-model" }
+    );
+
+    assert.equal(result.decision, "PASS");
+    assert.equal(result.source, "openai");
+    assert.equal(result.model, "test-model");
+    assert.equal(requestHeaders.Authorization, "Bearer test-key");
+    assert.equal(requestBody.text.format.type, "json_schema");
+    assert.equal(requestBody.text.format.strict, true);
+    assert.equal("tools" in requestBody, false);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("successful but malformed OpenAI payload returns REVIEW", async () => {
+  const previousFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      output_text: JSON.stringify({
+        decision: "PASS",
+        reason: "",
+      }),
+    }),
+  });
+
+  try {
+    const result = await verifyWithOpenAI(
+      {
+        acceptance: "The summary communicates a meaningful result.",
+        evidence: { summary: "Revenue increased." },
+      },
+      { apiKey: "test-key", model: "test-model" }
+    );
+
+    assert.equal(result.decision, "REVIEW");
+    assert.equal(result.passed, false);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
 test("OpenAI response errors reject so the caller can route to review", async () => {
   const previousFetch = global.fetch;
   global.fetch = async () => ({
