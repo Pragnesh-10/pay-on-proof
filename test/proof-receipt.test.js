@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { createProofReceipt, sha256 } = require("../lib/proof-receipt");
+const { createProofReceipt, sha256, verifyProofReceipt } = require("../lib/proof-receipt");
 const { listScenarios, simulateScenario } = require("../lib/scenario-simulator");
 
 function task(overrides = {}) {
@@ -36,6 +36,20 @@ test("proof receipt includes content hashes and a receipt hash", () => {
   assert.match(receipt.receiptSha256, /^[a-f0-9]{64}$/);
   assert.equal(receipt.payment.captureId, "capture-1");
   assert.equal(receipt.payment.authoritative, true);
+});
+
+test("receipt verifier detects changed acceptance criteria", () => {
+  const receipt = createProofReceipt({
+    task: task(),
+    generatedAt: "2026-10-28T00:01:00.000Z",
+    simulated: true,
+  });
+  const tampered = JSON.parse(JSON.stringify(receipt));
+  tampered.task.acceptanceCriteria = "A different criterion";
+
+  const result = verifyProofReceipt(tampered);
+  assert.equal(result.valid, false);
+  assert.equal(result.checks.find((check) => check.id === "criteria-hash").status, "FAIL");
 });
 
 test("evidence hashes are stable across object key order and change when evidence changes", () => {
