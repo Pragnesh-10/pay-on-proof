@@ -417,7 +417,7 @@ const DEMO_TASKS = [
     id: "task-a",
     title: "Generate a report",
     amount: "15.00",
-    acceptance: "Report contains a title and summary.",
+    acceptance: "Report contains a title and a meaningful summary of the result.",
     evidence: {
       title: "Quarterly Analysis",
       summary: "Revenue increased in the sample dataset.",
