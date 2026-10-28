@@ -1092,12 +1092,12 @@
     const authorizationId = $("authorizationId").value.trim();
     if (!authorizationId) throw new Error("Select an authorization ID in the Payment session first.");
     const payload = await readArtifactForm();
-    if (!/^(?:0|[1-9]\\d{0,2})\\.\\d{2}$/.test(payload.amount) || Number(payload.amount) <= 0) {
+    if (!/^(?:0|[1-9]\d{0,2})\.\d{2}$/.test(payload.amount) || Number(payload.amount) <= 0) {
       throw new Error("Enter a positive task amount, such as 15.00, before running the agent workflow.");
     }
     if (!confirm(
-      "Run the bounded agent workflow for sandbox authorization " + authorizationId + "?\\n\\n" +
-      "Artifact: " + payload.fileName + "\\nTask amount: $" + payload.amount + "\\n\\n" +
+      "Run the bounded agent workflow for sandbox authorization " + authorizationId + "?\n\n" +
+      "Artifact: " + payload.fileName + "\nTask amount: $" + payload.amount + "\n\n" +
       "The backend will check the configured structural criteria and save the result. " +
       "A newly recorded PASS task will trigger one PayPal sandbox capture for $" + payload.amount +
       ". REVIEW and FAIL are saved without capture. Previously recorded tasks are never auto-captured again. " +
