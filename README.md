@@ -36,9 +36,10 @@ The controlled demo's intended results are Task A $15 PASS, Task B $20 PASS, Tas
    npm start
    ```
 
-5. Open [http://localhost:3000](http://localhost:3000).
-6. First click **Preview verification (no payment)**. This exercises the verifier but never creates or changes a PayPal transaction. With `GROQ_API_KEY` configured, this does call Groq and may incur API usage cost.
-7. For a full payment demo, create an order, approve it using a sandbox Personal buyer, authorize it, then run the demo on the new authorization. Never reuse a completed or voided authorization.
+5. Run `npm run test:groq` to check the live Groq API integration without touching PayPal. This sends a small test prompt to Groq and may incur API usage; it prints the decision and latency but never makes a payment request.
+6. Open [http://localhost:3000](http://localhost:3000).
+7. First click **Preview verification (no payment)**. This exercises the verifier but never creates or changes a PayPal transaction. With `GROQ_API_KEY` configured, this does call Groq and may incur API usage cost.
+8. For a full payment demo, create an order, approve it using a sandbox Personal buyer, authorize it, then run the demo on the new authorization. Never reuse a completed or voided authorization.
 
 ## Verification and payment policy
 
@@ -52,6 +53,7 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 
 - `GET /api/health` — backend and verifier mode.
 - `POST /api/verification-preview` — verify the sample tasks without calling PayPal payment endpoints; may call Groq when configured.
+- `npm run test:groq` — run a local, payment-free Groq API smoke test.
 - `POST /api/orders` — create a $50 sandbox order.
 - `POST /api/orders/:orderId/authorize` — authorize an approved order created by this server.
 - `GET /api/authorizations/:authorizationId` — query PayPal status and local capture totals.
