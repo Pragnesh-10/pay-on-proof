@@ -37,7 +37,7 @@ The controlled demo's intended results are Task A $15 PASS, Task B $20 PASS, Tas
    ```
 
 5. Run `npm run test:groq` to check the live Groq API integration without touching PayPal. This sends a small test prompt to Groq and may incur API usage; it prints the decision and latency but never makes a payment request.
-6. Open [http://localhost:3000](http://localhost:3000).
+6. Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
 7. First click **Preview verification (no payment)**. This exercises the verifier but never creates or changes a PayPal transaction. With `GROQ_API_KEY` configured, this does call Groq and may incur API usage cost.
 8. For a full payment demo, create an order, approve it using a sandbox Personal buyer, authorize it, then run the demo on the new authorization. Never reuse a completed or voided authorization.
 
@@ -87,3 +87,4 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 - [Groq supported models](https://console.groq.com/docs/models)
 - [PayPal Orders API](https://developer.paypal.com/docs/api/orders/v2/)
 - [PayPal Payments API](https://developer.paypal.com/docs/api/payments/v2/)
+- [PayPal REST API idempotency and request IDs](https://developer.paypal.com/api/make-api-requests/)
