@@ -14,6 +14,9 @@ A PayPal sandbox prototype for evidence-gated agentic commerce: tasks are checke
 - Queries PayPal for the authoritative authorization status and verifies voiding of the unused authorization.
 - Serves a browser dashboard from `public/index.html`.
 - Provides a verification preview endpoint and dashboard button that run the verifier without contacting PayPal's payment endpoints. If AI is configured, the preview still makes a Groq API request and may incur usage cost.
+- Offers a PASS / REVIEW / FAIL simulator using synthetic evidence; all scenarios are payment-free and explicitly labelled as simulations.
+- Generates downloadable, hash-backed Proof Receipts with the evidence snapshot, acceptance criteria, verifier provenance, review decision, payment outcome, and event history.
+- Provides a human-review queue for actual REVIEW tasks. Approval re-checks deterministic gates, PayPal authorization status, budget, and unresolved captures before attempting a sandbox capture; rejection does not call PayPal.
 
 The controlled demo's intended results are Task A $15 PASS, Task B $20 PASS, Task C $10 FAIL: $35 captured, with the remaining $15 authorization voided. The $15 is an unused authorization amount, **not a refund**.
 
@@ -53,6 +56,10 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 
 - `GET /api/health` — backend and verifier mode.
 - `POST /api/verification-preview` — verify the sample tasks without calling PayPal payment endpoints; may call Groq when configured.
+- `GET /api/scenarios` and `POST /api/scenarios/:scenarioId/simulate` — list or run payment-free `pass`, `review`, and `fail` simulations.
+- `POST /api/authorizations/:authorizationId/tasks/:taskId/review` — record a reviewer decision on an actual unreviewed REVIEW task; APPROVE may attempt one sandbox capture after rechecking policy, REJECT never captures.
+- `GET /api/authorizations/:authorizationId/receipt/:taskId` — download a single task Proof Receipt.
+- `GET /api/authorizations/:authorizationId/receipts` — export all Proof Receipts for an authorization.
 - `npm run test:groq` — run a local, payment-free Groq API smoke test.
 - `POST /api/orders` — create a $50 sandbox order.
 - `POST /api/orders/:orderId/authorize` — authorize an approved order created by this server.
@@ -74,7 +81,8 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 
 - Use only PayPal **sandbox** credentials. Do not expose credentials in browser code or commit them to Git.
 - The JSON file and in-process mutation queue are single-process demo storage, not suitable for multi-instance or production payment concurrency.
-- API endpoints do not implement user authentication or authorization. The server binds to `127.0.0.1` by default; do not set `HOST=0.0.0.0` or expose it publicly without adding authentication, authorization, rate limits, and production-grade storage.
+- API endpoints do not implement user authentication or authorization, including human review. Reviewer names are audit labels, not verified identities. Keep the app bound to `127.0.0.1`; do not expose it publicly without authentication, authorization, rate limits, and production-grade storage.
+- Proof Receipt SHA-256 hashes make recorded snapshots tamper-evident by detecting changes; they do not prove that evidence is truthful or independently sourced.
 - Store only synthetic or non-sensitive evidence in the prototype.
 - A capture timeout or server error is treated as uncertain and reserves the amount. Use the dashboard's reconciliation action, which checks a known capture ID or replays the exact original request ID and payload. PayPal documents idempotency for repeated requests using the same `PayPal-Request-Id`; still inspect transaction status before voiding the remainder.
 - If reconciliation resolves a run that stopped midway, the app intentionally does not resume the remaining tasks automatically. Review the task log and PayPal state, then void the unused remainder or start a fresh sandbox authorization for another complete run.
