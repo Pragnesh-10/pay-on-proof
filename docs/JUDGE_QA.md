@@ -4,6 +4,14 @@
 
 It demonstrates a task-level payment gate: the backend evaluates each task against acceptance criteria and only attempts payment capture for a passing result. It explores how staged agentic work could be matched to staged payment, rather than treating an AI-generated completion claim as payment authority.
 
+## Which hackathon category does this fit best?
+
+The strongest fit is **AI Agents or Automation** because the backend does more than recommend: once a user starts the bounded workflow, it evaluates the result and can make a PayPal sandbox partial capture for a task that passes. It also fits **Business Solutions** as a task-payment control layer for platforms paying for staged deliverables. It is less directly a consumer money-transfer experience because it does not introduce a new P2P transfer method.
+
+## Is this really an agent if the model cannot call PayPal?
+
+The product is an agentic workflow with a deliberately separated transaction executor. The LLM can assess a narrow semantic criterion, but deterministic backend policy—not model tool access—decides whether a capture is allowed. The existing controlled task workflow can transact after the operator starts it; custom artifact captures require a separate explicit confirmation. This preserves control while still demonstrating that the system performs a transaction, not merely a recommendation.
+
 ## What is the key idea?
 
 The key design choice is the **separation of verification from payment execution**. An AI model can provide advisory semantic review, but only backend logic can initiate a capture, and only after deterministic hard gates and a final PASS decision.
