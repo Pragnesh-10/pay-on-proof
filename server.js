@@ -949,6 +949,145 @@ app.post(
   }
 );
 
+// Reconcile unresolved capture attempts using their original idempotency keys.
+app.post(
+  "/api/authorizations/:authorizationId/reconcile",
+  async (req, res) => {
+    const { authorizationId } = req.params;
+
+    if (!validId(authorizationId)) {
+      return res.status(400).json({ error: "Invalid authorization ID." });
+    }
+
+    try {
+      const result = await serializeMutation(async () => {
+        const local = state.authorizations[authorizationId];
+        if (!local) {
+          const error = new Error("Authorization is not recorded locally.");
+          error.status = 404;
+          throw error;
+        }
+        if (local.voidRequested) {
+          const error = new Error(
+            "A void has been requested. Resolve that transaction directly with PayPal before continuing."
+          );
+          error.status = 409;
+          throw error;
+        }
+
+        const attempts = (Array.isArray(local.captures) ? local.captures : [])
+          .filter(isUnresolvedCapture);
+        let resolvedCount = 0;
+
+        for (const attempt of attempts) {
+          try {
+            let capture;
+            if (attempt.captureId) {
+              capture = await paypalRequest(
+                `/v2/payments/captures/${encodeURIComponent(attempt.captureId)}`
+              );
+            } else {
+              // Replaying the exact requestId and payload lets PayPal return
+              // the original result instead of creating a duplicate capture.
+              capture = await paypalRequest(
+                `/v2/payments/authorizations/${encodeURIComponent(authorizationId)}/capture`,
+                {
+                  method: "POST",
+                  requestId: attempt.requestId,
+                  body: {
+                    amount: {
+                      currency_code: local.currency,
+                      value: attempt.amount,
+                    },
+                    final_capture: false,
+                  },
+                }
+              );
+            }
+
+            const returnedStatus = capture.status;
+            if (returnedStatus === "COMPLETED") {
+              attempt.status = "COMPLETED";
+            } else if (returnedStatus === "PENDING") {
+              attempt.status = "PENDING";
+            } else if (["DECLINED", "FAILED"].includes(returnedStatus)) {
+              attempt.status = "FAILED";
+            } else {
+              attempt.status = "UNKNOWN";
+            }
+
+            attempt.captureId = capture.id || attempt.captureId || null;
+            attempt.responseAmount = capture.amount || attempt.responseAmount || null;
+            attempt.reconciledAt = new Date().toISOString();
+            attempt.errorStatus = null;
+
+            if (attempt.taskId && Array.isArray(local.tasks)) {
+              const task = local.tasks.find(
+                (candidate) => candidate.taskId === attempt.taskId
+              );
+              if (task) {
+                task.captureId = attempt.captureId;
+                task.captureStatus = attempt.status;
+              }
+            }
+            if (!isUnresolvedCapture(attempt)) resolvedCount += 1;
+            saveState();
+          } catch (error) {
+            attempt.status = classifyCaptureFailure(error);
+            attempt.errorStatus = error.status || null;
+            attempt.reconciledAt = new Date().toISOString();
+            if (attempt.taskId && Array.isArray(local.tasks)) {
+              const task = local.tasks.find(
+                (candidate) => candidate.taskId === attempt.taskId
+              );
+              if (task) task.captureStatus = attempt.status;
+            }
+            saveState();
+          }
+        }
+
+        let paypalStatus = local.status || "UNKNOWN";
+        try {
+          const remote = await paypalRequest(
+            `/v2/payments/authorizations/${encodeURIComponent(authorizationId)}`
+          );
+          local.status = remote.status || local.status;
+          paypalStatus = remote.status || paypalStatus;
+        } catch {
+          // Preserve the reconciliation results; the UI still reports the
+          // authorization as unconfirmed until a later status refresh succeeds.
+          paypalStatus = "STATUS_REFRESH_FAILED";
+        }
+
+        const unresolvedCount = (local.captures || []).filter(isUnresolvedCapture).length;
+        if (unresolvedCount === 0 && local.demoRunStatus === "NEEDS_RECONCILIATION") {
+          // Do not resume midway through a payment sequence. The operator can
+          // inspect/void the remaining authorization or start with a fresh one.
+          local.demoRunStatus = "RECONCILED_STOPPED";
+        }
+        local.updatedAt = new Date().toISOString();
+        saveState();
+
+        return {
+          authorizationId,
+          paypalStatus,
+          resolvedCount,
+          unresolvedCount,
+          demoRunStatus: local.demoRunStatus || null,
+          tasks: local.tasks || [],
+          message: unresolvedCount
+            ? "Some capture attempts remain unresolved. Do not void or start another capture; retry reconciliation after checking PayPal."
+            : "Capture attempts are reconciled. The demo will not resume automatically; review PayPal status and task results before deciding whether to void the remainder.",
+        };
+      });
+
+      res.json(result);
+    } catch (error) {
+      sendError(res, error);
+    }
+  }
+);
+
 // Request void of the remaining authorization, then query PayPal again.
 app.post(
   "/api/authorizations/:authorizationId/void",
