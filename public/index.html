@@ -140,6 +140,7 @@
     .empty-state { display:flex; align-items:flex-start; gap:12px; padding:17px; border:1px dashed #ced7e7; border-radius:12px; background:#fbfcff; color:var(--muted); font-size:12px; line-height:1.6; }
     .empty-state::before { content:"i"; display:grid; place-items:center; flex:0 0 22px; width:22px; height:22px; border-radius:50%; background:#eaf0ff; color:var(--brand); font-size:12px; font-weight:850; }
     .tasks { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:17px; }
+    .tasks > .empty-state { grid-column:1 / -1; }
     .task { min-width:0; padding:17px; border:1px solid var(--line); border-radius:13px; background:#fff; }
     .task-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
     .task h3 { margin:0; font-size:13px; line-height:1.45; }
@@ -770,6 +771,9 @@
   $("runDemo").addEventListener("click", () => action(async () => {
     const id = $("authorizationId").value.trim();
     if (!id) throw new Error("Enter an authorization ID first.");
+    if (!confirm(
+      "Run the controlled task workflow for this PayPal sandbox authorization? Tasks that pass may be captured (up to $35 total); FAIL and REVIEW tasks will not be captured. This action cannot be undone from the dashboard. Continue?"
+    )) return;
 
     const data = await api(
       "/api/authorizations/" + encodeURIComponent(id) + "/run-demo",
