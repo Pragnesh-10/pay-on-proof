@@ -12,6 +12,18 @@ The key design choice is the **separation of verification from payment execution
 
 Task A includes a natural-language summary. Deterministic rules can check that the title and summary exist, but they do not determine whether the summary clearly states a meaningful result. Groq supplies an advisory semantic assessment for that narrow step. Tasks B and C are machine-checkable and remain deterministic.
 
+## Why add human review if the verifier already returns a decision?
+
+The model flags ambiguity rather than making the final business judgment. A reviewer records a name and rationale. Approval is only available for a stored REVIEW task, cannot bypass deterministic required-field checks, rechecks PayPal authorization and budget, and blocks if another capture is unresolved. Reviewer identity is not authenticated in this prototype, so this is for local sandbox demonstration only.
+
+## What is a Proof Receipt?
+
+It is a downloadable snapshot of the evidence, criteria, verifier source/model, original decision, any reviewer action, payment status, event history, and SHA-256 hashes. Hashes make changes to recorded bytes detectable; they do not prove evidence is truthful or independently sourced. Simulation receipts are explicitly non-authoritative.
+
+## Does the PASS / REVIEW / FAIL simulator move money?
+
+No. It uses synthetic fixtures, never calls PayPal, reports $0 actual captured, and marks receipts SIMULATION_ONLY. A real sandbox capture is only possible in the separate authorized payment workflow.
+
 ## What if the model hallucinates or the API is down?
 
 The model does not prove factual truth; no source data or calibrated benchmark is included in this prototype. A malformed decision, FAIL, REVIEW, timeout, or provider error is not a PASS. The backend routes errors to REVIEW and does not capture that task.

@@ -11,6 +11,8 @@ const {
   classifyCaptureFailure,
   isUnresolvedCapture,
 } = require("./lib/payment-safety");
+const { createProofReceipt } = require("./lib/proof-receipt");
+const { listScenarios, simulateScenario } = require("./lib/scenario-simulator");
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -522,6 +524,19 @@ app.post("/api/verification-preview", async (_req, res) => {
   }
 });
 
+// Payment-free scenario simulator. These are explicitly hypothetical outcomes.
+app.get("/api/scenarios", (_req, res) => {
+  res.json({ simulationOnly: true, paymentSideEffects: false, scenarios: listScenarios() });
+});
+
+app.post("/api/scenarios/:scenarioId/simulate", (req, res) => {
+  try {
+    res.json(simulateScenario(req.params.scenarioId));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 // Run the controlled demo against a fresh authorization.
 // Passing tasks are captured; failed tasks capture nothing.
 app.post(
@@ -609,6 +624,7 @@ app.post(
         for (const task of DEMO_TASKS) {
           const verification = await evaluateDemoTask(task);
 
+          const evaluatedAt = new Date().toISOString();
           const taskRecord = {
             taskId: task.id,
             title: task.title,
@@ -621,7 +637,15 @@ app.post(
             reason: verification.reason,
             captureId: null,
             captureStatus: "NOT_ATTEMPTED",
-            evaluatedAt: new Date().toISOString(),
+            evaluatedAt,
+            review: null,
+            events: [{
+              type: "VERIFICATION_COMPLETED",
+              at: evaluatedAt,
+              decision: verification.decision,
+              source: verification.source || "unknown",
+              reason: verification.reason,
+            }],
           };
 
           auth.tasks.push(taskRecord);
@@ -660,6 +684,12 @@ app.post(
 
           auth.captures.push(captureAttempt);
           taskRecord.captureStatus = "IN_PROGRESS";
+          taskRecord.events.push({
+            type: "CAPTURE_ATTEMPT_STARTED",
+            at: captureAttempt.startedAt,
+            requestId,
+            amount: task.amount,
+          });
           saveState();
 
           try {
@@ -687,6 +717,12 @@ app.post(
 
             taskRecord.captureId = capture.id || null;
             taskRecord.captureStatus = capture.status || "UNKNOWN";
+            taskRecord.events.push({
+              type: "CAPTURE_RESPONSE",
+              at: captureAttempt.finishedAt,
+              status: taskRecord.captureStatus,
+              captureId: taskRecord.captureId,
+            });
 
             saveState();
             results.push(taskRecord);
@@ -726,6 +762,12 @@ app.post(
             captureAttempt.finishedAt = new Date().toISOString();
 
             taskRecord.captureStatus = captureAttempt.status;
+            taskRecord.events.push({
+              type: "CAPTURE_ERROR",
+              at: captureAttempt.finishedAt,
+              status: captureAttempt.status,
+              httpStatus: captureAttempt.errorStatus,
+            });
             auth.demoRunStatus = "NEEDS_RECONCILIATION";
             auth.updatedAt = new Date().toISOString();
             saveState();
@@ -765,6 +807,208 @@ app.post(
           message:
             "Demo verification finished. Review the results and inspect the authorization before voiding the remainder.",
         };
+      });
+
+      res.json(result);
+    } catch (error) {
+      sendError(res, error);
+    }
+  }
+);
+
+// Human review is local-demo-only: this endpoint is unauthenticated.
+ // Only recorded REVIEW tasks can be reviewed; approval re-runs the deterministic
+ // hard gate, checks PayPal's live authorization, reserves budgets, and captures
+ // using a stable request ID. FAIL tasks can never be approved through this path.
+app.post(
+  "/api/authorizations/:authorizationId/tasks/:taskId/review",
+  async (req, res) => {
+    const { authorizationId, taskId } = req.params;
+    const { decision, reviewer, notes } = req.body || {};
+
+    if (!validId(authorizationId) || !validId(taskId)) {
+      return res.status(400).json({ error: "Invalid authorization or task ID." });
+    }
+    if (!["APPROVE", "REJECT"].includes(decision)) {
+      return res.status(400).json({ error: "decision must be APPROVE or REJECT." });
+    }
+    if (typeof reviewer !== "string" || reviewer.trim().length < 2 || reviewer.trim().length > 80) {
+      return res.status(400).json({ error: "Provide a reviewer name between 2 and 80 characters." });
+    }
+    if (typeof notes !== "string" || notes.trim().length < 5 || notes.trim().length > 500) {
+      return res.status(400).json({ error: "Provide review notes between 5 and 500 characters." });
+    }
+
+    try {
+      const result = await serializeMutation(async () => {
+        const auth = state.authorizations[authorizationId];
+        if (!auth) {
+          const error = new Error("Authorization is not recorded locally.");
+          error.status = 404;
+          throw error;
+        }
+
+        const task = (auth.tasks || []).find((item) => item.taskId === taskId);
+        if (!task) {
+          const error = new Error("Task is not recorded for this authorization.");
+          error.status = 404;
+          throw error;
+        }
+        if (task.verification !== "REVIEW" || task.review) {
+          const error = new Error("Only an unreviewed REVIEW task can enter this review action.");
+          error.status = 409;
+          throw error;
+        }
+        if (task.captureStatus !== "NOT_ATTEMPTED" ||
+            (auth.captures || []).some((capture) => capture.taskId === taskId)) {
+          const error = new Error("This task already has a capture attempt; reconcile it instead of reviewing again.");
+          error.status = 409;
+          throw error;
+        }
+        if (auth.voidRequested) {
+          const error = new Error("A void has been requested for this authorization.");
+          error.status = 409;
+          throw error;
+        }
+
+        const reviewedAt = new Date().toISOString();
+        const review = {
+          status: decision === "APPROVE" ? "APPROVED" : "REJECTED",
+          decision,
+          reviewer: reviewer.trim(),
+          notes: notes.trim(),
+          reviewedAt,
+        };
+
+        if (decision === "REJECT") {
+          task.review = review;
+          task.events = Array.isArray(task.events) ? task.events : [];
+          task.events.push({ type: "HUMAN_REVIEW_REJECTED", at: reviewedAt, reviewer: review.reviewer, notes: review.notes });
+          auth.updatedAt = reviewedAt;
+          saveState();
+          return {
+            authorizationId,
+            task,
+            captureAttempted: false,
+            paymentOutcome: "REJECTED_BY_REVIEWER",
+            message: "Review recorded. No PayPal capture was attempted.",
+          };
+        }
+
+        const deterministic = verifyDeterministicTask({
+          id: task.taskId,
+          evidence: task.evidence,
+        });
+        if (deterministic.decision !== "PASS") {
+          const error = new Error(
+            "Human approval cannot bypass deterministic required-field checks. Request corrected evidence and run verification again."
+          );
+          error.status = 409;
+          throw error;
+        }
+
+        if (auth.currency !== "USD" || moneyToCents(task.amount) <= 0) {
+          const error = new Error("This review capture requires a valid USD task amount.");
+          error.status = 409;
+          throw error;
+        }
+        if ((auth.captures || []).some(isUnresolvedCapture)) {
+          const error = new Error("An earlier capture is unresolved. Reconcile it before approving another capture.");
+          error.status = 409;
+          throw error;
+        }
+
+        const remote = await paypalRequest(
+          `/v2/payments/authorizations/${encodeURIComponent(authorizationId)}`
+        );
+        auth.status = remote.status;
+        if (!["CREATED", "PARTIALLY_CAPTURED"].includes(remote.status)) {
+          saveState();
+          const error = new Error(`Authorization cannot be captured in status ${remote.status}.`);
+          error.status = 409;
+          throw error;
+        }
+
+        const { committedCents, uncertainCents } = captureTotals(auth);
+        if (committedCents + uncertainCents + moneyToCents(task.amount) >
+            moneyToCents(auth.authorizedAmount)) {
+          const error = new Error("Review-approved capture exceeds the remaining locally available budget.");
+          error.status = 409;
+          throw error;
+        }
+
+        // Persist the reviewer decision before attempting an external side effect.
+        task.review = review;
+        task.events = Array.isArray(task.events) ? task.events : [];
+        task.events.push({ type: "HUMAN_REVIEW_APPROVED", at: reviewedAt, reviewer: review.reviewer, notes: review.notes });
+        const requestId = `pop-review-${authorizationId}-${taskId}`;
+        const attempt = {
+          requestId,
+          taskId,
+          amount: task.amount,
+          status: "IN_PROGRESS",
+          startedAt: new Date().toISOString(),
+          captureId: null,
+          initiatedBy: review.reviewer,
+        };
+        auth.captures.push(attempt);
+        task.captureStatus = "IN_PROGRESS";
+        task.events.push({ type: "CAPTURE_ATTEMPT_STARTED", at: attempt.startedAt, requestId, amount: task.amount });
+        auth.updatedAt = attempt.startedAt;
+        saveState();
+
+        try {
+          const capture = await paypalRequest(
+            `/v2/payments/authorizations/${encodeURIComponent(authorizationId)}/capture`,
+            {
+              method: "POST",
+              requestId,
+              body: {
+                amount: { currency_code: auth.currency, value: task.amount },
+                final_capture: false,
+              },
+            }
+          );
+
+          attempt.captureId = capture.id || null;
+          attempt.status = capture.status || "UNKNOWN";
+          attempt.responseAmount = capture.amount || null;
+          attempt.finishedAt = new Date().toISOString();
+          task.captureId = attempt.captureId;
+          task.captureStatus = attempt.status;
+          task.events.push({ type: "CAPTURE_RESPONSE", at: attempt.finishedAt, status: attempt.status, captureId: attempt.captureId });
+          auth.updatedAt = attempt.finishedAt;
+          saveState();
+
+          return {
+            authorizationId,
+            task,
+            captureAttempted: true,
+            capture: { captureId: attempt.captureId, status: attempt.status, amount: attempt.responseAmount },
+            paymentOutcome: attempt.status === "COMPLETED" ? "CAPTURE_COMPLETED" :
+              attempt.status === "PENDING" ? "CAPTURE_PENDING" :
+              attempt.status === "UNKNOWN" || attempt.status === "IN_PROGRESS" ? "OUTCOME_UNCERTAIN" : "CAPTURE_NOT_COMPLETED",
+            message: ["COMPLETED", "PENDING"].includes(attempt.status)
+              ? "Human review is recorded. Inspect the PayPal status; pending captures remain unresolved."
+              : "The capture did not complete normally. Reconcile the recorded request before any further payment action.",
+          };
+        } catch (error) {
+          attempt.status = classifyCaptureFailure(error);
+          attempt.errorStatus = error.status || null;
+          attempt.finishedAt = new Date().toISOString();
+          task.captureStatus = attempt.status;
+          task.events.push({ type: "CAPTURE_ERROR", at: attempt.finishedAt, status: attempt.status, httpStatus: attempt.errorStatus });
+          auth.updatedAt = attempt.finishedAt;
+          saveState();
+          return {
+            authorizationId,
+            task,
+            captureAttempted: true,
+            capture: { captureId: attempt.captureId, status: attempt.status },
+            paymentOutcome: attempt.status === "FAILED" ? "CAPTURE_FAILED" : "OUTCOME_UNCERTAIN",
+            message: "Capture request returned an error. Treat the outcome conservatively and use reconciliation before retrying or voiding.",
+          };
+        }
       });
 
       res.json(result);
@@ -1220,6 +1464,48 @@ app.post(
     }
   }
 );
+
+// Proof Receipts are snapshots of recorded evidence and decisions, not a truth guarantee.
+app.get("/api/authorizations/:authorizationId/receipts", (req, res) => {
+  const { authorizationId } = req.params;
+  if (!validId(authorizationId)) {
+    return res.status(400).json({ error: "Invalid authorization ID." });
+  }
+  const auth = state.authorizations[authorizationId];
+  if (!auth) return res.status(404).json({ error: "Authorization is not recorded locally." });
+
+  const receipts = (auth.tasks || []).map((task) =>
+    createProofReceipt({
+      authorizationId,
+      currency: auth.currency || "USD",
+      authorizationStatus: auth.status || null,
+      task,
+    })
+  );
+  res.json({
+    authorizationId,
+    receiptCount: receipts.length,
+    receipts,
+    limitations: "Receipt hashes protect the recorded snapshot from unnoticed changes; they do not prove evidence is truthful. Confirm uncertain financial outcomes with PayPal.",
+  });
+});
+
+app.get("/api/authorizations/:authorizationId/receipt/:taskId", (req, res) => {
+  const { authorizationId, taskId } = req.params;
+  if (!validId(authorizationId) || !validId(taskId)) {
+    return res.status(400).json({ error: "Invalid authorization or task ID." });
+  }
+  const auth = state.authorizations[authorizationId];
+  if (!auth) return res.status(404).json({ error: "Authorization is not recorded locally." });
+  const task = (auth.tasks || []).find((item) => item.taskId === taskId);
+  if (!task) return res.status(404).json({ error: "Task is not recorded for this authorization." });
+  res.json(createProofReceipt({
+    authorizationId,
+    currency: auth.currency || "USD",
+    authorizationStatus: auth.status || null,
+    task,
+  }));
+});
 
 // View locally persisted payment records.
 app.get("/api/state", (_req, res) => {
