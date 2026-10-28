@@ -163,6 +163,12 @@
     .audit-toggle { display:flex; align-items:center; justify-content:space-between; gap:10px; }
     .audit-description { margin:7px 0 0; font-size:11px; }
     #audit { margin-top:15px; max-height:440px; }
+    #artifactResult, #receiptVerificationResult { margin-top: 16px; }
+    .verification-checks { display: grid; gap: 8px; margin: 14px 0; }
+    .verification-check { padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
+    .verification-check strong { display: block; font-size: 13px; }
+    .verification-check p { margin: 4px 0 0; color: var(--ink-soft); font-size: 12px; line-height: 1.5; }
+    .artifact-meta { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
     .footer-note { display:flex; align-items:flex-start; gap:10px; margin:24px 2px 0; color:var(--muted); font-size:10px; line-height:1.6; }
     .footer-note strong { color:#53627c; }
     .hidden { display:none !important; }
@@ -226,6 +232,7 @@
     <nav class="side-nav">
       <a class="active" href="#overview"><span class="nav-icon" aria-hidden="true">⌂</span>Overview</a>
       <a href="#simulator"><span class="nav-icon" aria-hidden="true">◇</span>Scenario lab</a>
+      <a href="#artifact-section"><span class="nav-icon" aria-hidden="true">▧</span>Artifact proof</a>
       <a href="#session"><span class="nav-icon" aria-hidden="true">▣</span>Payment session</a>
       <a href="#tasks-section"><span class="nav-icon" aria-hidden="true">☷</span>Task verification</a>
       <a href="#review-section"><span class="nav-icon" aria-hidden="true">◎</span>Human review</a>
@@ -356,6 +363,69 @@
       <div id="scenarioResult" class="empty-state" aria-live="polite">Choose a scenario to inspect its evidence, decision, hypothetical payment outcome, and downloadable receipt.</div>
     </section>
 
+    <section class="panel" id="artifact-section">
+      <div class="section-head">
+        <div>
+          <h2>Real artifact verification</h2>
+          <p>Inspect a JSON or CSV file against explicit structural rules. Previewing is payment-free; attaching a passing task to an authorization and capturing it are separate actions.</p>
+        </div>
+        <span class="pill">MAX 20 KB</span>
+      </div>
+      <div class="field-grid">
+        <div class="field">
+          <label for="artifactFile">Artifact file (JSON or CSV)</label>
+          <input id="artifactFile" type="file" accept=".json,.csv,application/json,text/csv">
+        </div>
+        <div class="field">
+          <label for="artifactAmount">Task amount (USD)</label>
+          <input id="artifactAmount" inputmode="decimal" value="15.00" placeholder="15.00">
+        </div>
+        <div class="field">
+          <label for="requiredFields">Required fields (comma-separated)</label>
+          <input id="requiredFields" value="id" placeholder="id, status">
+        </div>
+        <div class="field">
+          <label for="uniqueField">Unique field (optional)</label>
+          <input id="uniqueField" value="id" placeholder="id">
+        </div>
+        <div class="field">
+          <label for="numericFields">Numeric fields (optional, comma-separated)</label>
+          <input id="numericFields" placeholder="score, amount">
+        </div>
+        <div class="field">
+          <label for="minRows">Minimum records</label>
+          <input id="minRows" type="number" min="1" max="500" value="1">
+        </div>
+      </div>
+      <div class="button-row">
+        <button id="verifyArtifact">Verify artifact (no payment)</button>
+        <button id="saveArtifactTask" class="secondary">Save to selected authorization</button>
+      </div>
+      <div class="notice">
+        <span class="notice-icon" aria-hidden="true">ⓘ</span>
+        <span>Structural PASS means only that the configured rules passed. It does not prove business correctness or factual truth. Artifact task records keep the file digest and up to three preview rows, not the full uploaded content.</span>
+      </div>
+      <div id="artifactResult" class="empty-state" aria-live="polite">Choose a JSON or CSV file and configure its acceptance rules to begin.</div>
+      <div class="subpanel" style="margin-top:18px">
+        <div class="subpanel-title"><span class="number-badge">✓</span><h3>Verify a Proof Receipt</h3></div>
+        <p>Upload a downloaded receipt. Select the original artifact too if you want to check its raw bytes against the recorded artifact digest.</p>
+        <div class="field-grid">
+          <div class="field">
+            <label for="receiptFile">Receipt JSON</label>
+            <input id="receiptFile" type="file" accept=".json,application/json">
+          </div>
+          <div class="field">
+            <label for="artifactForReceipt">Original artifact (optional)</label>
+            <input id="artifactForReceipt" type="file" accept=".json,.csv,application/json,text/csv">
+          </div>
+        </div>
+        <div class="button-row">
+          <button id="verifyReceiptFile" class="secondary">Verify receipt integrity</button>
+        </div>
+        <div id="receiptVerificationResult" class="empty-state" aria-live="polite">No receipt has been checked yet.</div>
+      </div>
+    </section>
+
     <section class="panel" id="tasks-section">
       <div class="section-head">
         <div>
@@ -421,6 +491,8 @@
   const $ = (id) => document.getElementById(id);
   let busy = false;
   let activeAuthorizationId = "";
+  let latestArtifactContent = null;
+  let latestArtifactResponse = null;
 
   function message(text, kind = "") {
     const node = $("message");
@@ -471,6 +543,87 @@
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
+  }
+
+  function renderArtifactResult(data, options = {}) {
+    latestArtifactResponse = data;
+    const root = $("artifactResult");
+    root.replaceChildren();
+    const task = data.task || {};
+    const title = document.createElement("h3");
+    title.textContent = (task.verification || "UNKNOWN") + " · " + (task.title || "Artifact");
+    title.className = task.verification === "PASS" ? "pass" :
+      task.verification === "FAIL" ? "fail" : "review";
+    const reason = document.createElement("p");
+    reason.textContent = task.reason || data.message || "No verification summary was returned.";
+    const metadata = document.createElement("p");
+    metadata.className = "artifact-meta";
+    metadata.textContent = "Records: " + Number(task.artifact?.recordCount ?? task.evidence?.recordCount ?? 0) +
+      " · Artifact SHA-256: " + (task.artifact?.sha256 || task.evidence?.artifactSha256 || "not available");
+    root.append(title, reason, metadata);
+
+    const checks = data.checks || task.verificationChecks || [];
+    const checkList = document.createElement("div");
+    checkList.className = "verification-checks";
+    for (const check of checks) {
+      const item = document.createElement("div");
+      item.className = "verification-check";
+      const checkTitle = document.createElement("strong");
+      checkTitle.textContent = (check.passed ? "✓ " : check.decision === "REVIEW" ? "◷ " : "× ") +
+        (check.label || check.id || "Criterion") + " · " +
+        (check.passed ? "PASS" : check.decision || "FAIL");
+      const detail = document.createElement("p");
+      detail.textContent = check.details || "";
+      item.append(checkTitle, detail);
+      checkList.append(item);
+    }
+    if (checks.length) root.append(checkList);
+
+    const receipt = data.proofReceipt;
+    if (receipt) {
+      const hash = document.createElement("p");
+      hash.className = "artifact-meta";
+      hash.textContent = "Proof Receipt SHA-256: " + receipt.receiptSha256;
+      const download = document.createElement("button");
+      download.className = "secondary";
+      download.textContent = "Download Proof Receipt";
+      download.addEventListener("click", () => downloadJson(
+        "pay-on-proof-artifact-" + (task.taskId || "preview") + "-receipt.json",
+        receipt
+      ));
+      root.append(hash, download);
+    }
+
+    if (data.paymentSideEffects === false) {
+      const note = document.createElement("p");
+      note.className = "muted";
+      note.textContent = "No PayPal payment endpoint was called; actual captured amount: $0.00.";
+      root.append(note);
+    }
+
+    if (task.artifact && task.verificationSource === "deterministic-artifact" &&
+        task.verification === "PASS" && task.captureStatus === "NOT_ATTEMPTED" &&
+        options.authorizationId) {
+      const capture = document.createElement("button");
+      capture.textContent = "Capture verified task · $" + Number(task.amount).toFixed(2);
+      capture.addEventListener("click", () => action(async () => {
+        if (!confirm("This will request a PayPal sandbox capture for $" +
+          Number(task.amount).toFixed(2) + " from the selected authorization. The action cannot be undone here. Continue?")) return;
+        const captured = await api(
+          "/api/authorizations/" + encodeURIComponent(options.authorizationId) +
+          "/artifact-tasks/" + encodeURIComponent(task.taskId) + "/capture",
+          { method: "POST" }
+        );
+        activeAuthorizationId = options.authorizationId;
+        renderArtifactResult(captured, { authorizationId: options.authorizationId });
+        showAudit(captured);
+        await refreshStatus();
+        renderArtifactResult(captured, { authorizationId: options.authorizationId });
+        message(captured.message || "Artifact capture outcome recorded.",
+          captured.paymentOutcome === "CAPTURE_COMPLETED" ? "success" : "error");
+      }));
+      root.append(capture);
+    }
   }
 
   function renderScenarioResult(data) {
@@ -846,6 +999,127 @@
     const data = await api("/api/authorizations/" + encodeURIComponent(id) + "/receipts");
     downloadJson("pay-on-proof-" + id + "-proof-receipts.json", data);
     message("Downloaded " + data.receiptCount + " Proof Receipt(s).");
+  }));
+
+  function splitFields(id) {
+    return $(id).value.split(",").map((value) => value.trim()).filter(Boolean);
+  }
+
+  async function readArtifactForm() {
+    const file = $("artifactFile").files && $("artifactFile").files[0];
+    if (!file) throw new Error("Choose a JSON or CSV artifact first.");
+    if (file.size > 20 * 1024) throw new Error("Artifact must be no larger than 20 KB.");
+    const extension = file.name.toLowerCase().split(".").pop();
+    if (!["json", "csv"].includes(extension)) throw new Error("Only .json and .csv files are supported.");
+    const content = await file.text();
+    const amount = $("artifactAmount").value.trim();
+    if (amount && !/^(?:0|[1-9]\d{0,2})\.\d{2}$/.test(amount)) {
+      throw new Error('Task amount must look like "15.00".');
+    }
+    const minRows = Number($("minRows").value);
+    if (!Number.isInteger(minRows) || minRows < 1 || minRows > 500) {
+      throw new Error("Minimum records must be between 1 and 500.");
+    }
+    return {
+      fileName: file.name,
+      format: extension,
+      content,
+      amount: amount || "0.00",
+      criteria: {
+        requiredFields: splitFields("requiredFields"),
+        uniqueField: $("uniqueField").value.trim() || "",
+        numericFields: splitFields("numericFields"),
+        minRows
+      }
+    };
+  }
+
+  $("verifyArtifact").addEventListener("click", () => action(async () => {
+    const payload = await readArtifactForm();
+    latestArtifactContent = payload.content;
+    const data = await api("/api/artifacts/verify", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    activeAuthorizationId = "";
+    renderArtifactResult(data);
+    showAudit(data);
+    message("Artifact preview completed. No PayPal payment request was made.",
+      data.task?.verification === "PASS" ? "success" : "error");
+  }));
+
+  $("saveArtifactTask").addEventListener("click", () => action(async () => {
+    const authorizationId = $("authorizationId").value.trim();
+    if (!authorizationId) throw new Error("Select an authorization ID in the Payment session first.");
+    const payload = await readArtifactForm();
+    if (!/^(?:0|[1-9]\d{0,2})\.\d{2}$/.test(payload.amount) || Number(payload.amount) <= 0) {
+      throw new Error("Enter a positive task amount, such as 15.00, before saving to an authorization.");
+    }
+    latestArtifactContent = payload.content;
+    const data = await api(
+      "/api/authorizations/" + encodeURIComponent(authorizationId) + "/artifact-tasks",
+      { method: "POST", body: JSON.stringify(payload) }
+    );
+    activeAuthorizationId = authorizationId;
+    renderArtifactResult(data, { authorizationId });
+    showAudit(data);
+    await refreshStatus();
+    renderArtifactResult(data, { authorizationId });
+    if (data.task?.verification === "REVIEW") {
+      message("Artifact needs review. It was saved, but no capture was attempted.", "error");
+    } else if (data.task?.verification === "FAIL") {
+      message("Artifact failed its configured checks. It was saved, but cannot be captured.", "error");
+    } else {
+      message("Artifact task saved. Capture is a separate confirmed action.", "success");
+    }
+  }));
+
+  $("verifyReceiptFile").addEventListener("click", () => action(async () => {
+    const file = $("receiptFile").files && $("receiptFile").files[0];
+    if (!file) throw new Error("Choose a Proof Receipt JSON file first.");
+    if (file.size > 32 * 1024) throw new Error("Receipt JSON must be no larger than 32 KB.");
+    let receipt;
+    try {
+      receipt = JSON.parse(await file.text());
+    } catch {
+      throw new Error("Receipt file is not valid JSON.");
+    }
+    const originalArtifact = $("artifactForReceipt").files && $("artifactForReceipt").files[0];
+    let artifactContent;
+    if (originalArtifact) {
+      if (originalArtifact.size > 20 * 1024) throw new Error("Original artifact must be no larger than 20 KB.");
+      artifactContent = await originalArtifact.text();
+    } else if (latestArtifactResponse?.proofReceipt?.receiptSha256 === receipt.receiptSha256 &&
+               typeof latestArtifactContent === "string") {
+      artifactContent = latestArtifactContent;
+    }
+    const body = { receipt };
+    if (typeof artifactContent === "string") body.artifactContent = artifactContent;
+    const result = await api("/api/receipts/verify", {
+      method: "POST",
+      body: JSON.stringify(body)
+    });
+    const root = $("receiptVerificationResult");
+    root.replaceChildren();
+    const heading = document.createElement("h3");
+    heading.textContent = result.valid ? "Receipt integrity checks passed" : "Receipt integrity check failed";
+    heading.className = result.valid ? "pass" : "fail";
+    root.append(heading);
+    for (const check of result.checks || []) {
+      const item = document.createElement("p");
+      item.textContent = (check.status === "PASS" ? "✓ " : check.status === "SKIPPED" ? "◷ " : "× ") +
+        check.label + ": " + check.details;
+      root.append(item);
+    }
+    for (const warning of result.warnings || []) {
+      const item = document.createElement("p");
+      item.className = "muted";
+      item.textContent = warning;
+      root.append(item);
+    }
+    showAudit(result);
+    message(result.valid ? "Receipt hashes were verified. Truth of evidence is not established." : "Receipt integrity check failed.",
+      result.valid ? "success" : "error");
   }));
 
   // Keep the compact navigation in sync with the section currently in view.
