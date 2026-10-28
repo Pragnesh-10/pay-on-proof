@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { createProofReceipt, sha256 } = require("../lib/proof-receipt");
+const { createProofReceipt, sha256, verifyProofReceipt } = require("../lib/proof-receipt");
 const { listScenarios, simulateScenario } = require("../lib/scenario-simulator");
 
 function task(overrides = {}) {
