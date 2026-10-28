@@ -30,6 +30,17 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The default server binding 
 4. Explain that this preview can call Groq, but does not call PayPal payment endpoints. Do not confuse a Groq API call with a payment.
 5. Confirm Task C is blocked because its conclusion is missing. If Task A returns REVIEW, explain that this is the intentional fail-closed path.
 
+## Real artifact verification
+
+1. Select a non-sensitive `.json` or `.csv` file up to 20 KB. JSON must be one object or an array of objects. CSV must have a header row with unique, non-empty column names.
+2. Configure required fields, an optional unique field, optional numeric fields, and the minimum record count.
+3. Click **Verify artifact (no payment)** first. Inspect each structural check and the source file SHA-256 digest. Malformed input routes to REVIEW; PASS means only that the configured structural checks passed.
+4. To attach the artifact to a sandbox authorization, enter/select the authorization ID in **Payment session**, choose a task amount, and click **Save to selected authorization**. This records the result and criteria but does not call PayPal.
+5. Only a recorded PASS artifact task displays **Capture verified task**. Confirm the amount before continuing. The backend rechecks live authorization status, budget, unresolved captures, and duplicate attempts. FAIL/REVIEW tasks cannot be captured through this route.
+6. Download its Proof Receipt. Upload the receipt JSON to **Verify receipt integrity**. Supply the original artifact file too if you want to compare its raw bytes to the recorded artifact digest.
+
+These checks validate structure and configured rules; they do not establish that values or claims are factually true. Receipt hashes are integrity checks, not a trusted signature or truth guarantee.
+
 ## New product flows: simulator, review, and receipts
 
 1. Choose **Simulate PASS**, **Simulate REVIEW**, and **Simulate FAIL**. Each scenario uses synthetic evidence and reports the hypothetical payment policy. It explicitly identifies itself as simulation-only; no PayPal endpoint is called and the actual captured amount remains $0.
@@ -97,4 +108,7 @@ The AI model can return REVIEW for Task A, in which case the system must not cap
 - [ ] PASS / REVIEW / FAIL simulator explicitly shows zero payment side effects.
 - [ ] Any human approval was intentional, reviewed, and sandbox-only; uncertain outcomes were reconciled.
 - [ ] Proof Receipts have accurate capture IDs/status; simulation receipts are not presented as real transactions.
+- [ ] Artifact preview reports zero payment side effects and malformed files never produce PASS.
+- [ ] Artifact capture is attempted only from a saved PASS task after explicit confirmation; FAIL/REVIEW remains uncaptured.
+- [ ] Receipt verifier accepts intact receipts and rejects tampered evidence, criteria, and receipt hashes.
 - [ ] README, submission brief, architecture, and this demo sequence match the code that will be judged.
