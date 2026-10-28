@@ -1,0 +1,56 @@
+[
+  {
+    "id": "pass-1",
+    "expected": "PASS",
+    "title": "Conversion experiment",
+    "summary": "Conversion increased from 4% to 5% during the two-week test."
+  },
+  {
+    "id": "pass-2",
+    "expected": "PASS",
+    "title": "Validation report",
+    "summary": "The classifier labelled 92 of 100 validation records correctly, giving 92% accuracy."
+  },
+  {
+    "id": "pass-3",
+    "expected": "PASS",
+    "title": "Latency comparison",
+    "summary": "Median response time fell from 220 milliseconds to 180 milliseconds in the load test."
+  },
+  {
+    "id": "fail-1",
+    "expected": "FAIL",
+    "title": "Project update",
+    "summary": "This report contains findings from our latest analysis."
+  },
+  {
+    "id": "fail-2",
+    "expected": "FAIL",
+    "title": "Team update",
+    "summary": "The team worked hard this quarter and made progress toward its goals."
+  },
+  {
+    "id": "fail-3",
+    "expected": "FAIL",
+    "title": "Summary",
+    "summary": "Several important topics and future opportunities are discussed in this document."
+  },
+  {
+    "id": "review-1",
+    "expected": "REVIEW",
+    "title": "Revenue update",
+    "summary": "Revenue improved, but the reporting period and comparison baseline are not stated."
+  },
+  {
+    "id": "review-2",
+    "expected": "REVIEW",
+    "title": "Model result",
+    "summary": "The model performed better according to an internal note, but no metric or sample size was provided."
+  },
+  {
+    "id": "review-3",
+    "expected": "REVIEW",
+    "title": "Deployment report",
+    "summary": "The deployment appears stable, though monitoring coverage and error counts are not available."
+  }
+]
