@@ -20,7 +20,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const app = express();
-app.use(express.json({ limit: "32kb" }));
+app.use(express.json({ limit: "128kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 const {
   PAYPAL_BASE_URL = "https://api-m.sandbox.paypal.com",
@@ -35,8 +35,10 @@ if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
   throw new Error("Missing PayPal REST credentials in .env");
 }
 
-const STATE_FILE = path.join(__dirname, ".pay-on-proof-state.json");
-const TEMP_FILE = path.join(__dirname, ".pay-on-proof-state.tmp");
+const STATE_FILE = process.env.PAYONPROOF_STATE_FILE ||
+  path.join(__dirname, ".pay-on-proof-state.json");
+const TEMP_FILE = process.env.PAYONPROOF_TEMP_FILE ||
+  path.join(path.dirname(STATE_FILE), ".pay-on-proof-state.tmp");
 
 function emptyState() {
   return { orders: {}, authorizations: {} };
