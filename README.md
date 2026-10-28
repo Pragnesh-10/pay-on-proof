@@ -71,7 +71,8 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 
 ## References
 
-- [Groq Chat Completions API](https://developers.openai.com/api/reference/resources/responses/methods/create)
-- [Groq Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
+- [Groq Chat Completions API](https://console.groq.com/docs/text-chat)
+- [Groq Structured Outputs](https://console.groq.com/docs/structured-outputs)
+- [Groq supported models](https://console.groq.com/docs/models)
 - [PayPal Orders API](https://developer.paypal.com/docs/api/orders/v2/)
 - [PayPal Payments API](https://developer.paypal.com/docs/api/payments/v2/)
