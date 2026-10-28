@@ -13,7 +13,7 @@ A PayPal sandbox prototype for evidence-gated agentic commerce: tasks are checke
 - Blocks repeated demo runs for an authorization.
 - Queries PayPal for the authoritative authorization status and verifies voiding of the unused authorization.
 - Serves a browser dashboard from `public/index.html`.
-- Provides a verification preview endpoint and dashboard button that run the verifier without contacting PayPal's payment endpoints. If AI is configured, the preview still makes an Groq API request and may incur usage cost.
+- Provides a verification preview endpoint and dashboard button that run the verifier without contacting PayPal's payment endpoints. If AI is configured, the preview still makes a Groq API request and may incur usage cost.
 
 The controlled demo's intended results are Task A $15 PASS, Task B $20 PASS, Task C $10 FAIL: $35 captured, with the remaining $15 authorization voided. The $15 is an unused authorization amount, **not a refund**.
 
@@ -42,7 +42,7 @@ The controlled demo's intended results are Task A $15 PASS, Task B $20 PASS, Tas
 
 ## Verification and payment policy
 
-The deterministic verifier is a hard gate for required fields and explicit checks. When `GROQ_API_KEY` is configured, Task A's natural-language summary also receives an Groq Chat Completions API semantic review using a strict JSON schema.
+The deterministic verifier is a hard gate for required fields and explicit checks. When `GROQ_API_KEY` is configured, Task A's natural-language summary also receives a Groq Chat Completions API semantic review using a strict JSON schema.
 
 The AI model has no payment tools and cannot call PayPal. The backend validates the AI response. If the AI says FAIL or REVIEW, returns malformed output, times out, or is unavailable, the task is not captured. A completed AI PASS may satisfy the semantic check only after the deterministic task checks already passed. Tasks B and C retain their deterministic checks.
 
