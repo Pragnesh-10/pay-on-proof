@@ -89,11 +89,13 @@ test("valid AI review result is retained with provenance", () => {
 });
 
 
-test("Groq semantic PASS is parsed from the raw Responses API output array", async () => {
+test("Groq semantic PASS is parsed from the Groq chat completion JSON response", async () => {
   const previousFetch = global.fetch;
   let requestBody;
   let requestHeaders;
-  global.fetch = async (_url, options) => {
+  let requestUrl;
+  global.fetch = async (url, options) => {
+    requestUrl = url;
     requestBody = JSON.parse(options.body);
     requestHeaders = options.headers;
     return {
@@ -125,6 +127,7 @@ test("Groq semantic PASS is parsed from the raw Responses API output array", asy
     assert.equal(result.decision, "PASS");
     assert.equal(result.source, "groq");
     assert.equal(result.model, "openai/gpt-oss-20b");
+    assert.equal(requestUrl, "https://api.groq.com/openai/v1/chat/completions");
     assert.equal(requestHeaders.Authorization, "Bearer test-key");
     assert.equal(requestBody.response_format.type, "json_schema");
     assert.equal(requestBody.response_format.json_schema.strict, true);
@@ -229,7 +232,7 @@ test("verification preview fails closed if an evaluator throws or returns an inv
   assert.ok(preview.tasks.every((task) => task.captureStatus === "NOT_ATTEMPTED"));
 });
 
-test("Groq response errors reject so the caller can route to review", async () => {
+test("Groq API errors reject so the caller can route to review", async () => {
   const previousFetch = global.fetch;
   global.fetch = async () => ({
     ok: false,
