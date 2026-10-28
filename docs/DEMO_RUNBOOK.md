@@ -30,7 +30,7 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The server accepts only loo
 4. Explain that this preview can call Groq, but does not call PayPal payment endpoints. Do not confuse a Groq API call with a payment.
 5. Confirm Task C is blocked because its conclusion is missing. If Task A returns REVIEW, explain that this is the intentional fail-closed path.
 
-## Real artifact verification
+## Real artifact verification and bounded agent workflow
 
 1. Select a non-sensitive `.json` or `.csv` file up to 20 KB. JSON must be one object or an array of objects. CSV must have a header row with unique, non-empty column names.
 2. Configure required fields, an optional unique field, optional numeric fields, and the minimum record count.
@@ -39,7 +39,15 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The server accepts only loo
 5. Only a recorded PASS artifact task displays **Capture verified task**. Confirm the amount before continuing. The backend rechecks live authorization status, budget, unresolved captures, and duplicate attempts. FAIL/REVIEW tasks cannot be captured through this route.
 6. Download its Proof Receipt. Upload the receipt JSON to **Verify receipt integrity**. Supply the original artifact file too if you want to compare its raw bytes to the recorded artifact digest.
 
-These checks validate structure and configured rules; they do not establish that values or claims are factually true. Receipt hashes are integrity checks, not a trusted signature or truth guarantee.
+### One-click automation demo
+
+1. Use a fresh authorized sandbox session and the same non-sensitive artifact. Configure the acceptance rules and amount, then click **Run agent workflow · capture only on PASS**.
+2. Read the confirmation carefully: it names the authorization, artifact, amount, and states that a newly recorded PASS can trigger one sandbox capture. This is the explicit operator consent boundary.
+3. On a newly recorded PASS, the dashboard chains verification, task persistence, and one capture request. It then shows the task result and Proof Receipt. The backend's existing live-status, budget, unresolved-capture, and duplicate-attempt checks still govern the capture.
+4. REVIEW and FAIL are recorded without capture. If the artifact/task was already recorded, the workflow does not auto-capture it again. Use the separate capture control only after inspecting the existing record.
+5. If the capture response cannot be confirmed, stop. Refresh status and reconcile the existing attempt; do not blindly re-run the workflow.
+
+These checks validate structure and configured rules; they do not establish that values or claims are factually true. Receipt hashes are integrity checks, not a trusted signature or truth guarantee. This artifact workflow uses explicit structural rules; it is not a general-purpose autonomous agent and does not give an LLM access to payment tools.
 
 ## New product flows: simulator, review, and receipts
 
