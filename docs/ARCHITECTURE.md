@@ -84,7 +84,7 @@ Eligibility is not itself proof that a capture succeeded. Capture status is reco
 - Capture attempts are persisted before the outbound capture request.
 - Amounts in `IN_PROGRESS`, `UNKNOWN`, or `PENDING` status remain reserved when calculating available funds.
 - Network errors, timeouts, conflicts, throttling, and server errors are treated conservatively as uncertain.
-- Reconciliation reuses the original idempotency key and request payload or queries a known capture ID. It does not automatically continue a partially completed task sequence.
+- Reconciliation reuses the original idempotency key and request payload or queries a known capture ID. It does not automatically continue a partially completed task sequence. Integration tests simulate a lost provider response and a capture that remains PENDING until the mock provider reports COMPLETED.
 - Void is refused while a capture is unresolved. A successful void releases only the unused authorization remainder, not money already captured.
 
 ## Review and receipt policies
@@ -95,6 +95,7 @@ Eligibility is not itself proof that a capture succeeded. Capture status is reco
 - The reviewer decision is persisted before attempting capture. A reviewed task cannot be submitted a second time; uncertain attempts must use reconciliation.
 - Rejections never call PayPal capture endpoints.
 - Review is unauthenticated in this local demo. Reviewer names are unverified audit labels; do not expose this API to a network.
+- Startup rejects `HOST` values other than `127.0.0.1` or `::1` while API authentication is absent. This does not protect against a separately configured reverse proxy or tunnel; keep remote access disabled.
 - Simulation receipts use mode SIMULATION_ONLY, payment.authoritative false, and no capture ID.
 - Custom artifact capture is a separate user action and is available only for a persisted artifact task with PASS. Upload and preview routes never call PayPal payment endpoints.
 - The artifact parser accepts only JSON objects/arrays and CSV with unique headers, caps raw text at 20 KB and records at 500, and stores a preview of no more than three rows.

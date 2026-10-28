@@ -77,6 +77,8 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 - `POST /api/authorizations/:authorizationId/capture` — bounded manual partial capture endpoint.
 - `POST /api/authorizations/:authorizationId/reconcile` — reconcile unresolved captures using the original request ID, or query a known capture ID.
 - `POST /api/authorizations/:authorizationId/void` — verify and void the unused authorization remainder.
+
+Failure recovery is covered with a local mock-provider integration test: a lost capture response replays the same idempotency key, a pending capture remains unresolved until the capture resource confirms completion, and void is blocked until all attempts resolve. The tests never use a real PayPal account.
 - `GET /api/state` — read local demo state.
 
 ## Submission pack
@@ -92,7 +94,7 @@ The repository is released under the [MIT License](LICENSE).
 
 - Use only PayPal **sandbox** credentials. Do not expose credentials in browser code or commit them to Git.
 - The JSON file and in-process mutation queue are single-process demo storage, not suitable for multi-instance or production payment concurrency.
-- API endpoints do not implement user authentication or authorization, including human review. Reviewer names are audit labels, not verified identities. Keep the app bound to `127.0.0.1`; do not expose it publicly without authentication, authorization, rate limits, and production-grade storage.
+- API endpoints do not implement user authentication or authorization, including human review. Reviewer names are audit labels, not verified identities. The server now rejects non-loopback `HOST` values and binds only to `127.0.0.1` or `::1`; this is a defensive guard, not a replacement for authentication. Do not expose it publicly without a redesigned authentication/authorization layer and production-grade storage.
 - Proof Receipt SHA-256 hashes and the receipt verifier detect recorded changes; they do not prove evidence truth or independently trusted provenance. Deterministic artifact checks assess structure and configured rules, not domain correctness.
 - Store only synthetic or non-sensitive evidence in the prototype. Artifact task records store the file digest and a preview of up to three rows, not the full uploaded artifact; avoid confidential fields.
 - A capture timeout or server error is treated as uncertain and reserves the amount. Use the dashboard's reconciliation action, which checks a known capture ID or replays the exact original request ID and payload. PayPal documents idempotency for repeated requests using the same `PayPal-Request-Id`; still inspect transaction status before voiding the remainder.

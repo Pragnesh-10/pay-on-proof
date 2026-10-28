@@ -70,10 +70,13 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   const mockCalls = [];
   let captureCount = 0;
   let authorizationStatus = "CREATED";
+  let nextCaptureMode = "normal";
+  let voidCount = 0;
+  const providerCaptures = new Map();
 
   const paypalMock = http.createServer(async (req, res) => {
     const body = await readBody(req);
-    mockCalls.push({ method: req.method, url: req.url, body });
+    mockCalls.push({ method: req.method, url: req.url, body, requestId: req.headers["paypal-request-id"] || null });
 
     if (req.method === "POST" && req.url === "/v1/oauth2/token") {
       return sendJson(res, 200, { access_token: "test-token", expires_in: 3600 });
@@ -111,14 +114,42 @@ test("artifact API previews without payment, blocks failed captures, and verifie
       });
     }
 
+    if (req.method === "GET" && req.url.startsWith("/v2/payments/captures/")) {
+      const captureId = decodeURIComponent(req.url.split("/").pop());
+      const capture = [...providerCaptures.values()].find((item) => item.id === captureId);
+      if (!capture) return sendJson(res, 404, { name: "RESOURCE_NOT_FOUND" });
+      return sendJson(res, 200, capture);
+    }
+
     if (req.method === "POST" && req.url === "/v2/payments/authorizations/AUTH_TEST_1/capture") {
+      const requestId = req.headers["paypal-request-id"];
+      if (providerCaptures.has(requestId)) {
+        // Simulate provider idempotency: replay returns the original outcome.
+        return sendJson(res, 201, providerCaptures.get(requestId));
+      }
+
       captureCount += 1;
       authorizationStatus = "PARTIALLY_CAPTURED";
-      return sendJson(res, 201, {
+      const capture = {
         id: "CAPTURE_TEST_" + captureCount,
-        status: "COMPLETED",
+        status: nextCaptureMode === "pending" ? "PENDING" : "COMPLETED",
         amount: body.amount,
-      });
+      };
+      providerCaptures.set(requestId, capture);
+
+      if (nextCaptureMode === "drop-response") {
+        // The provider side effect occurs, but the client never gets the response.
+        nextCaptureMode = "normal";
+        res.destroy();
+        return;
+      }
+      return sendJson(res, 201, capture);
+    }
+
+    if (req.method === "POST" && req.url === "/v2/payments/authorizations/AUTH_TEST_1/void") {
+      voidCount += 1;
+      authorizationStatus = "VOIDED";
+      return sendJson(res, 200, { id: "AUTH_TEST_1", status: "VOIDED" });
     }
 
     return sendJson(res, 404, { name: "RESOURCE_NOT_FOUND", message: "Unexpected mock request: " + req.method + " " + req.url });
@@ -288,4 +319,107 @@ test("artifact API previews without payment, blocks failed captures, and verifie
     wrongArtifactCheck.data.checks.find((check) => check.id === "artifact-content").status,
     "FAIL",
   );
+
+  // Failure injection: provider captures the payment but drops the response.
+  const timeoutContent = JSON.stringify([
+    { id: "R-301", score: 0.73 },
+    { id: "R-302", score: 0.81 },
+  ]);
+  const timeoutTask = await requestJson(appBaseUrl, "/api/authorizations/AUTH_TEST_1/artifact-tasks", {
+    method: "POST",
+    body: JSON.stringify({
+      fileName: "timeout-case.json",
+      format: "json",
+      content: timeoutContent,
+      amount: "5.00",
+      criteria: passingCriteria,
+    }),
+  });
+  assert.equal(timeoutTask.status, 200);
+  nextCaptureMode = "drop-response";
+  const timeoutCapture = await requestJson(
+    appBaseUrl,
+    "/api/authorizations/AUTH_TEST_1/artifact-tasks/" + encodeURIComponent(timeoutTask.data.task.taskId) + "/capture",
+    { method: "POST", body: "{}" },
+  );
+  assert.equal(timeoutCapture.status, 200);
+  assert.equal(timeoutCapture.data.task.captureStatus, "UNKNOWN");
+  assert.equal(timeoutCapture.data.paymentOutcome, "OUTCOME_UNCERTAIN");
+  assert.equal(captureCount, 2, "the mock provider accepted the capture despite dropping its response");
+
+  const blockedVoidDuringUnknown = await requestJson(
+    appBaseUrl, "/api/authorizations/AUTH_TEST_1/void", { method: "POST", body: "{}" },
+  );
+  assert.equal(blockedVoidDuringUnknown.status, 409);
+  assert.equal(voidCount, 0, "void must be blocked while a capture is unresolved");
+
+  const timeoutRequestId = timeoutCapture.data.task.events.find(
+    (event) => event.type === "CAPTURE_ATTEMPT_STARTED",
+  ).requestId;
+  const beforeReplayCount = captureCount;
+  const reconciledTimeout = await requestJson(
+    appBaseUrl, "/api/authorizations/AUTH_TEST_1/reconcile", { method: "POST", body: "{}" },
+  );
+  assert.equal(reconciledTimeout.status, 200);
+  assert.equal(reconciledTimeout.data.unresolvedCount, 0);
+  assert.equal(reconciledTimeout.data.tasks.find((item) => item.taskId === timeoutTask.data.task.taskId).captureStatus, "COMPLETED");
+  assert.equal(captureCount, beforeReplayCount, "reconciliation replay must not create another provider capture");
+  const replayCalls = mockCalls.filter((call) =>
+    call.method === "POST" &&
+    call.url === "/v2/payments/authorizations/AUTH_TEST_1/capture" &&
+    call.requestId === timeoutRequestId
+  );
+  assert.equal(replayCalls.length, 2, "reconciliation must replay the exact original idempotency key");
+
+  // Failure injection: PayPal returns PENDING, so the capture remains unresolved.
+  const pendingContent = JSON.stringify([
+    { id: "R-401", score: 0.65 },
+    { id: "R-402", score: 0.88 },
+  ]);
+  const pendingTask = await requestJson(appBaseUrl, "/api/authorizations/AUTH_TEST_1/artifact-tasks", {
+    method: "POST",
+    body: JSON.stringify({
+      fileName: "pending-case.json",
+      format: "json",
+      content: pendingContent,
+      amount: "4.00",
+      criteria: passingCriteria,
+    }),
+  });
+  assert.equal(pendingTask.status, 200);
+  nextCaptureMode = "pending";
+  const pendingCapture = await requestJson(
+    appBaseUrl,
+    "/api/authorizations/AUTH_TEST_1/artifact-tasks/" + encodeURIComponent(pendingTask.data.task.taskId) + "/capture",
+    { method: "POST", body: "{}" },
+  );
+  assert.equal(pendingCapture.status, 200);
+  assert.equal(pendingCapture.data.task.captureStatus, "PENDING");
+  assert.equal(captureCount, 3);
+
+  const blockedVoidDuringPending = await requestJson(
+    appBaseUrl, "/api/authorizations/AUTH_TEST_1/void", { method: "POST", body: "{}" },
+  );
+  assert.equal(blockedVoidDuringPending.status, 409);
+  assert.equal(voidCount, 0, "void must remain blocked while a provider capture is pending");
+
+  const pendingCaptureRecord = [...providerCaptures.values()].find(
+    (item) => item.id === pendingCapture.data.task.captureId,
+  );
+  assert.ok(pendingCaptureRecord);
+  pendingCaptureRecord.status = "COMPLETED";
+  const reconciledPending = await requestJson(
+    appBaseUrl, "/api/authorizations/AUTH_TEST_1/reconcile", { method: "POST", body: "{}" },
+  );
+  assert.equal(reconciledPending.status, 200);
+  assert.equal(reconciledPending.data.unresolvedCount, 0);
+  assert.equal(reconciledPending.data.tasks.find((item) => item.taskId === pendingTask.data.task.taskId).captureStatus, "COMPLETED");
+  assert.equal(captureCount, 3, "checking a known capture ID must not create another capture");
+
+  const voidAfterResolution = await requestJson(
+    appBaseUrl, "/api/authorizations/AUTH_TEST_1/void", { method: "POST", body: "{}" },
+  );
+  assert.equal(voidAfterResolution.status, 200, JSON.stringify(voidAfterResolution.data));
+  assert.equal(voidAfterResolution.data.status, "VOIDED");
+  assert.equal(voidCount, 1, "void should be requested only after all captures resolve");
 });

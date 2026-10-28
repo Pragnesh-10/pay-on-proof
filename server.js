@@ -1851,6 +1851,12 @@ app.get("/api/state", (_req, res) => {
 });
 
 const HOST = process.env.HOST || "127.0.0.1";
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1"]);
+if (!LOOPBACK_HOSTS.has(HOST)) {
+  throw new Error(
+    "Pay-on-Proof is an unauthenticated sandbox prototype and may bind only to loopback (127.0.0.1 or ::1). Do not expose it on a network."
+  );
+}
 app.listen(Number(PORT), HOST, () => {
   console.log(
     `Pay-on-Proof backend running at http://${HOST}:${PORT}`
