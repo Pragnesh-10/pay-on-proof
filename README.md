@@ -1,8 +1,16 @@
 # Pay-on-Proof
 
-A PayPal sandbox prototype for evidence-gated agentic commerce: tasks are checked against acceptance criteria, and the backend captures value only for tasks that pass verification.
+A PayPal sandbox prototype for **AI Agent Automation**: verify task evidence against acceptance criteria, then let a controlled backend workflow capture the PayPal amount assigned to passing work. This is a hackathon prototype for task-level payments, auditable decisions, and conservative recovery—not a production payment service.
 
 > **Prototype status:** hackathon/demo software only. It is not a production payment service. Use sandbox credentials only.
+
+## Hackathon track fit
+
+**Primary track: AI Agents or Automation.** Pay-on-Proof is a transacting workflow, not just an assistant that recommends whether to pay. A user starts a bounded sandbox workflow; the backend evaluates task evidence, and a passing task can trigger a real PayPal sandbox partial capture. The LLM is advisory and cannot call PayPal directly. The backend applies hard gates, budgets, idempotency, and reconciliation safeguards.
+
+**Secondary fit: Business Solutions.** The use case is a platform or business paying for staged deliverables from contractors or AI-enabled services, with task-level criteria and a reviewable payment record.
+
+**Supporting fit: Money Movement Experiences.** The system demonstrates partial captures and releasing unused authorization, but the product's central value is the verification-to-payment automation—not a new payment rail or a general consumer transfer experience.
 
 ## What works
 

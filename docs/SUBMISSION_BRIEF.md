@@ -4,6 +4,18 @@
 
 **Pay-on-Proof makes agentic work payable by evidence:** verify each task against acceptance criteria, then capture only the amount assigned to tasks that pass.
 
+## Hackathon track positioning
+
+**Recommended primary category: AI Agents or Automation.**
+
+The product demonstrates a workflow that can take a payment action on a user's behalf after a verified task decision: the backend evaluates task evidence, enforces deterministic gates and payment limits, then can submit a PayPal sandbox partial capture for eligible work. This is more than returning a recommendation—the workflow can transact. The AI model is deliberately not given payment tools or credentials.
+
+**Secondary category: Business Solutions.** A marketplace, service platform, or business could use this pattern to pay for staged work such as generated reports, data validation, or other deliverables with explicit acceptance criteria.
+
+**Supporting category: Money Movement Experiences.** Pay-on-Proof demonstrates per-task partial captures and release of unused authorization, but its main differentiation is the verification-to-payment control layer rather than a novel consumer transfer method.
+
+The current implementation remains a sandbox prototype. The custom artifact path has a separate explicit capture action; the controlled demo can automatically process its predefined task bundle after the user starts the run. Avoid claiming fully autonomous general-purpose agents or production readiness.
+
 ## The problem
 
 Agentic systems can produce multiple pieces of work, but payment can be difficult to align with the quality or completeness of each result. Paying the full amount before validation shifts the risk to the buyer; paying the full amount only after everything is complete can be too coarse for work delivered in stages. The core product question is: **how can a payment system make a task-level decision auditable without giving an AI model authority over money?**
