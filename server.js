@@ -6,6 +6,7 @@ const {
   verifyDeterministicTask,
   verifyWithOpenAI,
 } = require("./lib/verifier");
+const { createVerificationPreview } = require("./lib/verification-preview");
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -499,42 +500,17 @@ async function evaluateDemoTask(task) {
   }
 }
 
-// Preview the controlled task verifier without any payment side effects.
-// This endpoint never queries or mutates PayPal payment resources.
+// Preview task verification without querying or mutating PayPal resources.
 app.post("/api/verification-preview", async (_req, res) => {
   try {
-    const tasks = [];
-
-    for (const task of DEMO_TASKS) {
-      const verification = await evaluateDemoTask(task);
-      tasks.push({
-        taskId: task.id,
-        title: task.title,
-        amount: task.amount,
-        acceptance: task.acceptance,
-        evidence: task.evidence,
-        verification: verification.decision,
-        verificationSource: verification.source,
-        verificationModel: verification.model || null,
-        reason: verification.reason,
-        captureId: null,
-        captureStatus: "NOT_ATTEMPTED",
-        evaluatedAt: new Date().toISOString(),
-      });
-    }
-
-    res.json({
-      mode: process.env.OPENAI_API_KEY ? "hybrid" : "deterministic",
-      paymentSideEffects: false,
-      tasks,
-      totals: {
-        captured: "0.00",
-        uncertain: "0.00",
-      },
-      message: process.env.OPENAI_API_KEY
-        ? "Verification preview complete. No payment request was made."
-        : "Preview used deterministic checks because OPENAI_API_KEY is not configured. No payment request was made.",
-    });
+    const preview = await createVerificationPreview(
+      DEMO_TASKS,
+      evaluateDemoTask,
+      {
+        mode: process.env.OPENAI_API_KEY ? "hybrid" : "deterministic",
+      }
+    );
+    res.json(preview);
   } catch (error) {
     sendError(res, error);
   }
