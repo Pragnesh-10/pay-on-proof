@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const {
   verifyDeterministicTask,
   validateAiDecision,
-  verifyWithOpenAI,
+  verifyWithGroq,
 } = require("../lib/verifier");
 const {
   createVerificationPreview,
@@ -80,87 +80,89 @@ test("valid AI review result is retained with provenance", () => {
   const result = validateAiDecision({
     decision: "PASS",
     reason: "The summary clearly states a result.",
-  }, "test-model");
+  }, "openai/gpt-oss-20b");
 
   assert.equal(result.decision, "PASS");
   assert.equal(result.passed, true);
-  assert.equal(result.source, "openai");
-  assert.equal(result.model, "test-model");
+  assert.equal(result.source, "groq");
+  assert.equal(result.model, "openai/gpt-oss-20b");
 });
 
 
-test("OpenAI semantic PASS is parsed from the raw Responses API output array", async () => {
+test("Groq semantic PASS is parsed from the Groq chat completion JSON response", async () => {
   const previousFetch = global.fetch;
   let requestBody;
   let requestHeaders;
-  global.fetch = async (_url, options) => {
+  let requestUrl;
+  global.fetch = async (url, options) => {
+    requestUrl = url;
     requestBody = JSON.parse(options.body);
     requestHeaders = options.headers;
     return {
       ok: true,
       status: 200,
       json: async () => ({
-        id: "resp_test",
-        status: "completed",
-        output: [
-          {
-            type: "message",
-            content: [
-              {
-                type: "output_text",
-                text: JSON.stringify({
-                  decision: "PASS",
-                  reason: "The summary states a clear result.",
-                }),
-              },
-            ],
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              decision: "PASS",
+              reason: "The summary states a clear result.",
+            }),
           },
-        ],
+          finish_reason: "stop",
+        }],
       }),
     };
   };
 
   try {
-    const result = await verifyWithOpenAI(
+    const result = await verifyWithGroq(
       {
         acceptance: "The summary communicates a meaningful result.",
         evidence: { title: "Report", summary: "Revenue increased." },
       },
-      { apiKey: "test-key", model: "test-model" }
+      { apiKey: "test-key", model: "openai/gpt-oss-20b" }
     );
 
     assert.equal(result.decision, "PASS");
-    assert.equal(result.source, "openai");
-    assert.equal(result.model, "test-model");
+    assert.equal(result.source, "groq");
+    assert.equal(result.model, "openai/gpt-oss-20b");
+    assert.equal(requestUrl, "https://api.groq.com/openai/v1/chat/completions");
     assert.equal(requestHeaders.Authorization, "Bearer test-key");
-    assert.equal(requestBody.text.format.type, "json_schema");
-    assert.equal(requestBody.text.format.strict, true);
+    assert.equal(requestBody.response_format.type, "json_schema");
+    assert.equal(requestBody.response_format.json_schema.strict, true);
+    assert.equal(requestBody.model, "openai/gpt-oss-20b");
     assert.equal("tools" in requestBody, false);
   } finally {
     global.fetch = previousFetch;
   }
 });
 
-test("successful but malformed OpenAI payload returns REVIEW", async () => {
+test("successful but malformed Groq payload returns REVIEW", async () => {
   const previousFetch = global.fetch;
   global.fetch = async () => ({
     ok: true,
     status: 200,
     json: async () => ({
-      output_text: JSON.stringify({
-        decision: "PASS",
-        reason: "",
-      }),
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            decision: "PASS",
+            reason: "",
+          }),
+        },
+        finish_reason: "stop",
+      }],
     }),
   });
 
   try {
-    const result = await verifyWithOpenAI(
+    const result = await verifyWithGroq(
       {
         acceptance: "The summary communicates a meaningful result.",
         evidence: { summary: "Revenue increased." },
       },
-      { apiKey: "test-key", model: "test-model" }
+      { apiKey: "test-key", model: "openai/gpt-oss-20b" }
     );
 
     assert.equal(result.decision, "REVIEW");
@@ -194,8 +196,8 @@ test("verification preview records decisions but never marks captures attempted"
     async () => {
       calls += 1;
       return calls === 1
-        ? { decision: "PASS", source: "openai", model: "test-model", reason: "Clear result." }
-        : { decision: "REVIEW", source: "openai", model: "test-model", reason: "Ambiguous." };
+        ? { decision: "PASS", source: "groq", model: "openai/gpt-oss-20b", reason: "Clear result." }
+        : { decision: "REVIEW", source: "groq", model: "openai/gpt-oss-20b", reason: "Ambiguous." };
     },
     { mode: "hybrid", now: () => "2026-01-01T00:00:00.000Z" }
   );
@@ -210,7 +212,7 @@ test("verification preview records decisions but never marks captures attempted"
   );
   assert.ok(preview.tasks.every((task) => task.captureStatus === "NOT_ATTEMPTED"));
   assert.ok(preview.tasks.every((task) => task.captureId === null));
-  assert.equal(preview.tasks[0].verificationSource, "openai");
+  assert.equal(preview.tasks[0].verificationSource, "groq");
 });
 
 test("verification preview fails closed if an evaluator throws or returns an invalid decision", async () => {
@@ -230,7 +232,7 @@ test("verification preview fails closed if an evaluator throws or returns an inv
   assert.ok(preview.tasks.every((task) => task.captureStatus === "NOT_ATTEMPTED"));
 });
 
-test("OpenAI response errors reject so the caller can route to review", async () => {
+test("Groq API errors reject so the caller can route to review", async () => {
   const previousFetch = global.fetch;
   global.fetch = async () => ({
     ok: false,
@@ -240,12 +242,12 @@ test("OpenAI response errors reject so the caller can route to review", async ()
 
   try {
     await assert.rejects(
-      verifyWithOpenAI(
+      verifyWithGroq(
         {
           acceptance: "Summary is meaningful.",
           evidence: { summary: "A result." },
         },
-        { apiKey: "test-key", model: "test-model" }
+        { apiKey: "test-key", model: "openai/gpt-oss-20b" }
       ),
       /HTTP 503/
     );

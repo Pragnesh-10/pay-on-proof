@@ -4,7 +4,7 @@ require("dotenv").config();
 const express = require("express");
 const {
   verifyDeterministicTask,
-  verifyWithOpenAI,
+  verifyWithGroq,
 } = require("./lib/verifier");
 const { createVerificationPreview } = require("./lib/verification-preview");
 
@@ -178,14 +178,14 @@ function captureTotals(authRecord) {
 
 // API health and verifier mode. Never return secret configuration.
 app.get("/api/health", (_req, res) => {
-  const aiConfigured = Boolean(process.env.OPENAI_API_KEY);
+  const aiConfigured = Boolean(process.env.GROQ_API_KEY);
   res.json({
     name: "Pay-on-Proof",
     environment: "sandbox",
     status: "running",
     verifierMode: aiConfigured ? "hybrid" : "deterministic",
     aiModel: aiConfigured
-      ? process.env.OPENAI_MODEL || "gpt-4.1-mini"
+      ? process.env.GROQ_MODEL || "openai/gpt-oss-20b"
       : null,
   });
 });
@@ -465,7 +465,7 @@ async function evaluateDemoTask(task) {
     return deterministic;
   }
 
-  if (!process.env.OPENAI_API_KEY) {
+  if (!process.env.GROQ_API_KEY) {
     return {
       ...deterministic,
       reason:
@@ -475,7 +475,7 @@ async function evaluateDemoTask(task) {
   }
 
   try {
-    const semantic = await verifyWithOpenAI(task);
+    const semantic = await verifyWithGroq(task);
     if (semantic.decision !== "PASS") {
       return semantic;
     }
@@ -488,14 +488,14 @@ async function evaluateDemoTask(task) {
     };
   } catch (error) {
     // Fail closed: AI outages must never silently become a PASS.
-    console.error("Semantic verifier unavailable:", error.message);
+    console.error("Groq verifier unavailable:", error.message);
     return {
       decision: "REVIEW",
       passed: false,
       reason:
         "AI verification is unavailable; human review is required and no capture will be made.",
-      source: "openai",
-      model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+      source: "groq",
+      model: process.env.GROQ_MODEL || "openai/gpt-oss-20b",
     };
   }
 }
@@ -507,7 +507,7 @@ app.post("/api/verification-preview", async (_req, res) => {
       DEMO_TASKS,
       evaluateDemoTask,
       {
-        mode: process.env.OPENAI_API_KEY ? "hybrid" : "deterministic",
+        mode: process.env.GROQ_API_KEY ? "hybrid" : "deterministic",
       }
     );
     res.json(preview);
