@@ -37,7 +37,7 @@ The controlled demo's intended results are Task A $15 PASS, Task B $20 PASS, Tas
    ```
 
 5. Run `npm run test:groq` to check the live Groq API integration without touching PayPal. This sends a small test prompt to Groq and may incur API usage; it prints the decision and latency but never makes a payment request.
-6. Open [http://localhost:3000](http://localhost:3000).
+6. Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
 7. First click **Preview verification (no payment)**. This exercises the verifier but never creates or changes a PayPal transaction. With `GROQ_API_KEY` configured, this does call Groq and may incur API usage cost.
 8. For a full payment demo, create an order, approve it using a sandbox Personal buyer, authorize it, then run the demo on the new authorization. Never reuse a completed or voided authorization.
 
@@ -59,16 +59,25 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 - `GET /api/authorizations/:authorizationId` — query PayPal status and local capture totals.
 - `POST /api/authorizations/:authorizationId/run-demo` — run the controlled single-use demo.
 - `POST /api/authorizations/:authorizationId/capture` — bounded manual partial capture endpoint.
-- `POST /api/authorizations/:authorizationId/void` — reconcile and void the unused authorization.
+- `POST /api/authorizations/:authorizationId/reconcile` — reconcile unresolved captures using the original request ID, or query a known capture ID.
+- `POST /api/authorizations/:authorizationId/void` — verify and void the unused authorization remainder.
 - `GET /api/state` — read local demo state.
+
+## Submission pack
+
+- [Submission brief](docs/SUBMISSION_BRIEF.md) — problem, value proposition, architecture, differentiators, evidence, and limitations.
+- [Demo runbook](docs/DEMO_RUNBOOK.md) — clean setup, safe demo sequence, expected outcome, and recovery steps.
+- [Architecture](docs/ARCHITECTURE.md) — components, decision flow, data persistence, and trust boundaries.
+- [Judge Q&A](docs/JUDGE_QA.md) — concise, honest answers to likely technical and product questions.
 
 ## Limitations and security
 
 - Use only PayPal **sandbox** credentials. Do not expose credentials in browser code or commit them to Git.
 - The JSON file and in-process mutation queue are single-process demo storage, not suitable for multi-instance or production payment concurrency.
-- API endpoints do not currently implement user authentication or authorization. Do not expose this server to the public internet.
+- API endpoints do not implement user authentication or authorization. The server binds to `127.0.0.1` by default; do not set `HOST=0.0.0.0` or expose it publicly without adding authentication, authorization, rate limits, and production-grade storage.
 - Store only synthetic or non-sensitive evidence in the prototype.
-- Never retry a capture whose outcome is uncertain until its status is reconciled with PayPal.
+- A capture timeout or server error is treated as uncertain and reserves the amount. Use the dashboard's reconciliation action, which checks a known capture ID or replays the exact original request ID and payload. PayPal documents idempotency for repeated requests using the same `PayPal-Request-Id`; still inspect transaction status before voiding the remainder.
+- If reconciliation resolves a run that stopped midway, the app intentionally does not resume the remaining tasks automatically. Review the task log and PayPal state, then void the unused remainder or start a fresh sandbox authorization for another complete run.
 - A successful authorization void releases the remaining authorization; it does not reverse completed captures.
 
 ## References
@@ -78,3 +87,4 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 - [Groq supported models](https://console.groq.com/docs/models)
 - [PayPal Orders API](https://developer.paypal.com/docs/api/orders/v2/)
 - [PayPal Payments API](https://developer.paypal.com/docs/api/payments/v2/)
+- [PayPal REST API idempotency and request IDs](https://developer.paypal.com/api/make-api-requests/)

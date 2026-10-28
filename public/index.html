@@ -96,7 +96,9 @@
     <button id="previewVerifier" class="secondary">Preview verification (no payment)</button>
     <button id="runDemo">3. Run task demo</button>
     <button id="refresh" class="secondary">Refresh status</button>
+    <button id="reconcile" class="secondary">Reconcile uncertain captures</button>
     <button id="voidAuth" class="secondary">Void remaining authorization</button>
+    <p id="paymentNotice" class="muted" role="status">Preview mode has no payment side effects. Live payment actions use PayPal sandbox credentials.</p>
     <p id="message" role="status"></p>
   </section>
 
@@ -229,6 +231,8 @@
       $("captured").textContent = money(data.captureTotals.committedCents);
       $("uncertain").textContent = money(data.captureTotals.uncertainCents);
     }
+    $("paymentNotice").textContent =
+      "Live sandbox session selected. Authorization status comes from PayPal; totals reflect recorded capture attempts.";
 
     const state = await api("/api/state");
     const auth = state.authorizations?.[id];
@@ -251,6 +255,7 @@
 
   $("createOrder").addEventListener("click", () => action(async () => {
     const data = await api("/api/orders", { method: "POST" });
+    $("paymentNotice").textContent = "Live sandbox order created. No capture occurs until a task passes verification.";
     $("orderId").value = data.orderId || "";
     showAudit(data);
 
@@ -270,6 +275,7 @@
       "/api/orders/" + encodeURIComponent(orderId) + "/authorize",
       { method: "POST" }
     );
+    $("paymentNotice").textContent = "Live sandbox authorization recorded. Capture eligibility is decided by the backend verifier.";
 
     if (data.authorizationId) {
       $("authorizationId").value = data.authorizationId;
@@ -282,6 +288,8 @@
     const data = await api("/api/verification-preview", { method: "POST" });
     renderTasks(data.tasks || []);
     showAudit(data);
+    $("paymentNotice").textContent =
+      `Preview-only totals: ${data.totals?.captured || "0.00"} captured, ${data.totals?.uncertain || "0.00"} uncertain. No PayPal payment request was made.`;
     message(data.message || "Verification preview completed; no payment request was made.");
   }));
 
@@ -303,6 +311,23 @@
   $("refresh").addEventListener("click", () => action(async () => {
     await refreshStatus();
     message("Authorization status refreshed from the backend.");
+  }));
+
+  $("reconcile").addEventListener("click", () => action(async () => {
+    const id = $("authorizationId").value.trim();
+    if (!id) throw new Error("Enter an authorization ID first.");
+    if (!confirm(
+      "Reconcile uncertain captures by checking known capture IDs or replaying the exact original request ID and payload? An intended capture may complete if PayPal never accepted the first request. Continue?"
+    )) return;
+
+    const data = await api(
+      "/api/authorizations/" + encodeURIComponent(id) + "/reconcile",
+      { method: "POST" }
+    );
+    await refreshStatus();
+    renderTasks(data.tasks || []);
+    showAudit(data);
+    message(data.message || "Reconciliation finished; inspect the results before taking further action.");
   }));
 
   $("voidAuth").addEventListener("click", () => action(async () => {

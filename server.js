@@ -7,6 +7,10 @@ const {
   verifyWithGroq,
 } = require("./lib/verifier");
 const { createVerificationPreview } = require("./lib/verification-preview");
+const {
+  classifyCaptureFailure,
+  isUnresolvedCapture,
+} = require("./lib/payment-safety");
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -14,13 +18,15 @@ const path = require("node:path");
 
 const app = express();
 app.use(express.json({ limit: "10kb" }));
-app.use(express.static("public"));
+app.use(express.static(path.join(__dirname, "public")));
 const {
   PAYPAL_BASE_URL = "https://api-m.sandbox.paypal.com",
   PAYPAL_CLIENT_ID,
   PAYPAL_CLIENT_SECRET,
   PORT = 3000,
 } = process.env;
+
+const LOCAL_BASE_URL = `http://127.0.0.1:${PORT}`;
 
 if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
   throw new Error("Missing PayPal REST credentials in .env");
@@ -208,8 +214,8 @@ app.post("/api/orders", async (_req, res) => {
       body: {
         intent: "AUTHORIZE",
         application_context: {
-          return_url: "http://localhost:3000/checkout/return",
-          cancel_url: "http://localhost:3000/checkout/cancel",
+          return_url: `${LOCAL_BASE_URL}/checkout/return`,
+          cancel_url: `${LOCAL_BASE_URL}/checkout/cancel`,
         },
         purchase_units: [
           {
@@ -421,7 +427,7 @@ const DEMO_TASKS = [
     acceptance: "Report contains a title and a meaningful summary of the result.",
     evidence: {
       title: "Quarterly Analysis",
-      summary: "Revenue increased in the sample dataset.",
+      summary: "Revenue increased by 8% compared with the previous quarter.",
     },
     shouldPass: true,
   },
@@ -645,6 +651,7 @@ app.post(
 
           const captureAttempt = {
             requestId,
+            taskId: task.id,
             amount: task.amount,
             status: "IN_PROGRESS",
             startedAt: new Date().toISOString(),
@@ -714,9 +721,7 @@ app.post(
               };
             }
           } catch (error) {
-            captureAttempt.status = error.status
-              ? "FAILED"
-              : "UNKNOWN";
+            captureAttempt.status = classifyCaptureFailure(error);
             captureAttempt.errorStatus = error.status || null;
             captureAttempt.finishedAt = new Date().toISOString();
 
@@ -926,8 +931,10 @@ app.post(
             finalCapture: false,
           };
         } catch (error) {
-          // HTTP errors are explicit responses; network errors can be ambiguous.
-          attempt.status = error.status ? "FAILED" : "UNKNOWN";
+          // HTTP errors can still be ambiguous (for example a timeout or 5xx).
+          // Keep the amount reserved unless rejection is definitive. Reconcile
+          // with the same PayPal-Request-Id before any new capture or void.
+          attempt.status = classifyCaptureFailure(error);
           attempt.errorStatus = error.status || null;
           attempt.finishedAt = new Date().toISOString();
           local.updatedAt = new Date().toISOString();
@@ -935,6 +942,165 @@ app.post(
 
           throw error;
         }
+      });
+
+      res.json(result);
+    } catch (error) {
+      sendError(res, error);
+    }
+  }
+);
+
+// Reconcile unresolved capture attempts using their original idempotency keys.
+app.post(
+  "/api/authorizations/:authorizationId/reconcile",
+  async (req, res) => {
+    const { authorizationId } = req.params;
+
+    if (!validId(authorizationId)) {
+      return res.status(400).json({ error: "Invalid authorization ID." });
+    }
+
+    try {
+      const result = await serializeMutation(async () => {
+        const local = state.authorizations[authorizationId];
+        if (!local) {
+          const error = new Error("Authorization is not recorded locally.");
+          error.status = 404;
+          throw error;
+        }
+        if (local.voidRequested) {
+          const error = new Error(
+            "A void has been requested. Resolve that transaction directly with PayPal before continuing."
+          );
+          error.status = 409;
+          throw error;
+        }
+
+        const attempts = (Array.isArray(local.captures) ? local.captures : [])
+          .filter(isUnresolvedCapture);
+        let resolvedCount = 0;
+
+        for (const attempt of attempts) {
+          try {
+            let capture;
+            if (attempt.captureId) {
+              capture = await paypalRequest(
+                `/v2/payments/captures/${encodeURIComponent(attempt.captureId)}`
+              );
+            } else {
+              if (
+                typeof attempt.requestId !== "string" ||
+                !/^[A-Za-z0-9._:-]{1,100}$/.test(attempt.requestId) ||
+                typeof attempt.amount !== "string" ||
+                !/^(?:0|[1-9]\d{0,2})\.\d{2}$/.test(attempt.amount) ||
+                local.currency !== "USD"
+              ) {
+                attempt.status = "UNKNOWN";
+                attempt.reconciliationError =
+                  "Original request data is incomplete; inspect the transaction with PayPal manually.";
+                attempt.reconciledAt = new Date().toISOString();
+                saveState();
+                continue;
+              }
+
+              // Replaying the exact requestId and payload lets PayPal return
+              // the original result instead of creating a duplicate capture.
+              capture = await paypalRequest(
+                `/v2/payments/authorizations/${encodeURIComponent(authorizationId)}/capture`,
+                {
+                  method: "POST",
+                  requestId: attempt.requestId,
+                  body: {
+                    amount: {
+                      currency_code: local.currency,
+                      value: attempt.amount,
+                    },
+                    final_capture: false,
+                  },
+                }
+              );
+            }
+
+            const returnedStatus = capture.status;
+            if (returnedStatus === "COMPLETED") {
+              attempt.status = "COMPLETED";
+            } else if (returnedStatus === "PENDING") {
+              attempt.status = "PENDING";
+            } else if (["DECLINED", "FAILED"].includes(returnedStatus)) {
+              attempt.status = "FAILED";
+            } else {
+              attempt.status = "UNKNOWN";
+            }
+
+            attempt.captureId = capture.id || attempt.captureId || null;
+            attempt.responseAmount = capture.amount || attempt.responseAmount || null;
+            attempt.reconciledAt = new Date().toISOString();
+            attempt.errorStatus = null;
+
+            if (attempt.taskId && Array.isArray(local.tasks)) {
+              const task = local.tasks.find(
+                (candidate) => candidate.taskId === attempt.taskId
+              );
+              if (task) {
+                task.captureId = attempt.captureId;
+                task.captureStatus = attempt.status;
+              }
+            }
+            if (!isUnresolvedCapture(attempt)) resolvedCount += 1;
+            saveState();
+          } catch (error) {
+            // A known capture ID returning an error is not proof that the
+            // capture never happened. Keep it unresolved for manual review.
+            attempt.status = attempt.captureId
+              ? "UNKNOWN"
+              : classifyCaptureFailure(error);
+            attempt.errorStatus = error.status || null;
+            attempt.reconciledAt = new Date().toISOString();
+            if (attempt.taskId && Array.isArray(local.tasks)) {
+              const task = local.tasks.find(
+                (candidate) => candidate.taskId === attempt.taskId
+              );
+              if (task) task.captureStatus = attempt.status;
+            }
+            if (!isUnresolvedCapture(attempt)) resolvedCount += 1;
+            saveState();
+          }
+        }
+
+        let paypalStatus = local.status || "UNKNOWN";
+        try {
+          const remote = await paypalRequest(
+            `/v2/payments/authorizations/${encodeURIComponent(authorizationId)}`
+          );
+          local.status = remote.status || local.status;
+          paypalStatus = remote.status || paypalStatus;
+        } catch {
+          // Preserve the reconciliation results; the UI still reports the
+          // authorization as unconfirmed until a later status refresh succeeds.
+          paypalStatus = "STATUS_REFRESH_FAILED";
+        }
+
+        const unresolvedCount = (local.captures || []).filter(isUnresolvedCapture).length;
+        if (unresolvedCount === 0 && local.demoRunStatus === "NEEDS_RECONCILIATION") {
+          // Do not resume midway through a payment sequence. The operator can
+          // inspect/void the remaining authorization or start with a fresh one.
+          local.demoRunStatus = "RECONCILED_STOPPED";
+        }
+        local.updatedAt = new Date().toISOString();
+        saveState();
+
+        return {
+          authorizationId,
+          paypalStatus,
+          resolvedCount,
+          unresolvedCount,
+          demoRunStatus: local.demoRunStatus || null,
+          tasks: local.tasks || [],
+          message: unresolvedCount
+            ? "Some capture attempts remain unresolved. Do not void or start another capture; retry reconciliation after checking PayPal."
+            : "Capture attempts are reconciled. The demo will not resume automatically; review PayPal status and task results before deciding whether to void the remainder.",
+        };
       });
 
       res.json(result);
@@ -968,11 +1134,7 @@ app.post(
           throw error;
         }
 
-        const unresolved = local.captures.some((capture) =>
-          ["IN_PROGRESS", "UNKNOWN", "PENDING"].includes(
-            capture.status
-          )
-        );
+        const unresolved = local.captures.some(isUnresolvedCapture);
 
         if (unresolved) {
           const error = new Error(
@@ -1064,8 +1226,9 @@ app.get("/api/state", (_req, res) => {
   res.json(state);
 });
 
-app.listen(Number(PORT), () => {
+const HOST = process.env.HOST || "127.0.0.1";
+app.listen(Number(PORT), HOST, () => {
   console.log(
-    `Pay-on-Proof backend running at http://localhost:${PORT}`
+    `Pay-on-Proof backend running at http://${HOST}:${PORT}`
   );
 });
