@@ -989,6 +989,21 @@ app.post(
                 `/v2/payments/captures/${encodeURIComponent(attempt.captureId)}`
               );
             } else {
+              if (
+                typeof attempt.requestId !== "string" ||
+                !/^[A-Za-z0-9._:-]{1,100}$/.test(attempt.requestId) ||
+                typeof attempt.amount !== "string" ||
+                !/^(?:0|[1-9]\\d{0,2})\\.\\d{2}$/.test(attempt.amount) ||
+                local.currency !== "USD"
+              ) {
+                attempt.status = "UNKNOWN";
+                attempt.reconciliationError =
+                  "Original request data is incomplete; inspect the transaction with PayPal manually.";
+                attempt.reconciledAt = new Date().toISOString();
+                saveState();
+                continue;
+              }
+
               // Replaying the exact requestId and payload lets PayPal return
               // the original result instead of creating a duplicate capture.
               capture = await paypalRequest(
@@ -1035,7 +1050,11 @@ app.post(
             if (!isUnresolvedCapture(attempt)) resolvedCount += 1;
             saveState();
           } catch (error) {
-            attempt.status = classifyCaptureFailure(error);
+            // A known capture ID returning an error is not proof that the
+            // capture never happened. Keep it unresolved for manual review.
+            attempt.status = attempt.captureId
+              ? "UNKNOWN"
+              : classifyCaptureFailure(error);
             attempt.errorStatus = error.status || null;
             attempt.reconciledAt = new Date().toISOString();
             if (attempt.taskId && Array.isArray(local.tasks)) {
@@ -1044,6 +1063,7 @@ app.post(
               );
               if (task) task.captureStatus = attempt.status;
             }
+            if (!isUnresolvedCapture(attempt)) resolvedCount += 1;
             saveState();
           }
         }
