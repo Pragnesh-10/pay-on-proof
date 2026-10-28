@@ -20,7 +20,7 @@ npm start
 
 `npm run test:groq` makes a live Groq request and may incur usage. It makes no PayPal payment request. Skip this command if the live API key is not configured; the automated tests do not require a live Groq key.
 
-Open [http://localhost:3000](http://localhost:3000). The default server binding is `127.0.0.1`.
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The default server binding is `127.0.0.1`.
 
 ## Safer preview-first workflow
 
