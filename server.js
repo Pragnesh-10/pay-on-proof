@@ -11,7 +11,8 @@ const {
   classifyCaptureFailure,
   isUnresolvedCapture,
 } = require("./lib/payment-safety");
-const { createProofReceipt } = require("./lib/proof-receipt");
+const { createProofReceipt, verifyProofReceipt, sha256 } = require("./lib/proof-receipt");
+const { verifyArtifact } = require("./lib/artifact-verifier");
 const { listScenarios, simulateScenario } = require("./lib/scenario-simulator");
 
 const crypto = require("node:crypto");
@@ -19,7 +20,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const app = express();
-app.use(express.json({ limit: "10kb" }));
+app.use(express.json({ limit: "32kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 const {
   PAYPAL_BASE_URL = "https://api-m.sandbox.paypal.com",
@@ -525,6 +526,341 @@ app.post("/api/verification-preview", async (_req, res) => {
 });
 
 // Payment-free scenario simulator. These are explicitly hypothetical outcomes.
+
+function buildArtifactTask(result, amount = "0.00") {
+  const taskId = "artifact-" + sha256(JSON.stringify({
+    fileSha256: result.artifact.sha256,
+    criteria: result.criteria,
+  })).slice(0, 16);
+  const evaluatedAt = new Date().toISOString();
+  return {
+    taskId,
+    title: result.artifact.fileName,
+    amount,
+    acceptance: result.criteria,
+    evidence: {
+      fileName: result.artifact.fileName,
+      format: result.artifact.format,
+      artifactSha256: result.artifact.sha256,
+      recordCount: result.artifact.recordCount,
+      rowsPreview: result.recordsPreview || [],
+      parsed: result.parsed,
+    },
+    verification: result.decision,
+    verificationSource: "deterministic-artifact",
+    verificationModel: null,
+    verifierVersion: "1.0.0",
+    verificationChecks: result.checks,
+    reason: result.reason,
+    captureId: null,
+    captureStatus: "NOT_ATTEMPTED",
+    evaluatedAt,
+    review: null,
+    artifact: { ...result.artifact },
+    events: [{
+      type: "ARTIFACT_VERIFICATION_COMPLETED",
+      at: evaluatedAt,
+      decision: result.decision,
+      artifactSha256: result.artifact.sha256,
+    }],
+  };
+}
+
+function parseArtifactAmount(value, { required = false } = {}) {
+  if (value === undefined || value === null || value === "") {
+    if (required) throw new TypeError("A task amount is required before saving an artifact to an authorization.");
+    return "0.00";
+  }
+  if (typeof value !== "string" || !/^(?:0|[1-9]\d{0,2})\.\d{2}$/.test(value) ||
+      moneyToCents(value) < (required ? 1 : 0)) {
+    throw new TypeError('amount must be a decimal string such as "15.00".');
+  }
+  return value;
+}
+
+function runArtifactVerification(body) {
+  return verifyArtifact({
+    fileName: body.fileName,
+    format: body.format,
+    content: body.content,
+    criteria: body.criteria || {},
+  });
+}
+
+// Preview only: this route never calls PayPal payment endpoints.
+app.post("/api/artifacts/verify", (req, res) => {
+  try {
+    const body = req.body || {};
+    const result = runArtifactVerification(body);
+    const amount = parseArtifactAmount(body.amount);
+    const task = buildArtifactTask(result, amount);
+    const proofReceipt = createProofReceipt({ task, simulated: true });
+    res.json({
+      mode: "ARTIFACT_VERIFICATION_ONLY",
+      paymentSideEffects: false,
+      actualCapturedAmount: "0.00",
+      task,
+      checks: result.checks,
+      proofReceipt,
+      message: result.reason + " This preview does not contact PayPal payment endpoints.",
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Record a verified artifact task on a selected sandbox authorization. This
+// operation still does not capture funds.
+app.post("/api/authorizations/:authorizationId/artifact-tasks", async (req, res) => {
+  const { authorizationId } = req.params;
+  if (!validId(authorizationId)) {
+    return res.status(400).json({ error: "Invalid authorization ID." });
+  }
+
+  try {
+    const body = req.body || {};
+    const amount = parseArtifactAmount(body.amount, { required: true });
+    const verification = runArtifactVerification(body);
+    const candidate = buildArtifactTask(verification, amount);
+
+    const result = await serializeMutation(async () => {
+      const auth = state.authorizations[authorizationId];
+      if (!auth) {
+        const error = new Error("Authorization is not recorded locally. Create and authorize a fresh sandbox order first.");
+        error.status = 404;
+        throw error;
+      }
+      if (auth.voidRequested) {
+        const error = new Error("A void has been requested for this authorization.");
+        error.status = 409;
+        throw error;
+      }
+
+      auth.tasks = Array.isArray(auth.tasks) ? auth.tasks : [];
+      const existing = auth.tasks.find((task) => task.taskId === candidate.taskId);
+      if (existing) {
+        if (existing.amount !== amount) {
+          const error = new Error("This artifact and criteria are already recorded with a different amount. Use the original task record to avoid duplicate payment.");
+          error.status = 409;
+          throw error;
+        }
+        return { auth, task: existing, reused: true };
+      }
+
+      auth.tasks.push(candidate);
+      auth.updatedAt = new Date().toISOString();
+      saveState();
+      return { auth, task: candidate, reused: false };
+    });
+
+    const proofReceipt = createProofReceipt({
+      authorizationId,
+      currency: result.auth.currency || "USD",
+      authorizationStatus: result.auth.status || null,
+      task: result.task,
+    });
+    res.json({
+      authorizationId,
+      task: result.task,
+      reused: result.reused,
+      proofReceipt,
+      message: result.reused
+        ? "This artifact is already recorded. No payment was attempted."
+        : "Artifact verification saved to the selected authorization. No payment was attempted.",
+    });
+  } catch (error) {
+    if (error instanceof TypeError) return res.status(400).json({ error: error.message });
+    sendError(res, error);
+  }
+});
+
+// Capture is a separate, explicit operation. It accepts only a recorded PASS
+// artifact task and rechecks provider status, available budget, and uncertainty.
+app.post("/api/authorizations/:authorizationId/artifact-tasks/:taskId/capture", async (req, res) => {
+  const { authorizationId, taskId } = req.params;
+  if (!validId(authorizationId) || !validId(taskId)) {
+    return res.status(400).json({ error: "Invalid authorization or task ID." });
+  }
+
+  try {
+    const result = await serializeMutation(async () => {
+      const auth = state.authorizations[authorizationId];
+      if (!auth) {
+        const error = new Error("Authorization is not recorded locally.");
+        error.status = 404;
+        throw error;
+      }
+      const task = (auth.tasks || []).find((item) => item.taskId === taskId);
+      if (!task || !task.artifact) {
+        const error = new Error("This artifact task is not recorded for the authorization.");
+        error.status = 404;
+        throw error;
+      }
+      if (task.verification !== "PASS" || task.verificationSource !== "deterministic-artifact") {
+        const error = new Error("Only a recorded artifact task with a PASS decision can be captured.");
+        error.status = 409;
+        throw error;
+      }
+      if (task.captureStatus !== "NOT_ATTEMPTED" ||
+          (auth.captures || []).some((capture) => capture.taskId === taskId)) {
+        const error = new Error("This artifact task already has a capture attempt. Inspect or reconcile the existing attempt; do not submit a new one.");
+        error.status = 409;
+        throw error;
+      }
+      if (auth.voidRequested) {
+        const error = new Error("A void has been requested for this authorization.");
+        error.status = 409;
+        throw error;
+      }
+      if (auth.currency !== "USD" || moneyToCents(task.amount) <= 0) {
+        const error = new Error("Artifact capture requires a positive USD task amount.");
+        error.status = 409;
+        throw error;
+      }
+
+      auth.captures = Array.isArray(auth.captures) ? auth.captures : [];
+      if (auth.captures.some(isUnresolvedCapture)) {
+        const error = new Error("An earlier capture is unresolved. Reconcile it before capturing another task.");
+        error.status = 409;
+        throw error;
+      }
+
+      const remote = await paypalRequest(
+        "/v2/payments/authorizations/" + encodeURIComponent(authorizationId)
+      );
+      auth.status = remote.status;
+      if (!["CREATED", "PARTIALLY_CAPTURED"].includes(remote.status)) {
+        saveState();
+        const error = new Error("Authorization cannot be captured in status " + remote.status + ".");
+        error.status = 409;
+        throw error;
+      }
+
+      const totals = captureTotals(auth);
+      if (totals.committedCents + totals.uncertainCents + moneyToCents(task.amount) >
+          moneyToCents(auth.authorizedAmount)) {
+        const error = new Error("Artifact capture exceeds the remaining locally available authorization budget.");
+        error.status = 409;
+        throw error;
+      }
+
+      const requestId = "pop-" + authorizationId + "-" + taskId;
+      const attempt = {
+        requestId,
+        taskId,
+        amount: task.amount,
+        status: "IN_PROGRESS",
+        startedAt: new Date().toISOString(),
+        captureId: null,
+        source: "artifact-verification",
+      };
+      auth.captures.push(attempt);
+      task.captureStatus = "IN_PROGRESS";
+      task.events = Array.isArray(task.events) ? task.events : [];
+      task.events.push({
+        type: "CAPTURE_ATTEMPT_STARTED",
+        at: attempt.startedAt,
+        requestId,
+        amount: task.amount,
+        source: "artifact-verification",
+      });
+      auth.updatedAt = attempt.startedAt;
+      saveState();
+
+      try {
+        const capture = await paypalRequest(
+          "/v2/payments/authorizations/" + encodeURIComponent(authorizationId) + "/capture",
+          {
+            method: "POST",
+            requestId,
+            body: {
+              amount: { currency_code: auth.currency, value: task.amount },
+              final_capture: false,
+            },
+          }
+        );
+
+        attempt.captureId = capture.id || null;
+        attempt.status = capture.status || "UNKNOWN";
+        attempt.responseAmount = capture.amount || null;
+        attempt.finishedAt = new Date().toISOString();
+        task.captureId = attempt.captureId;
+        task.captureStatus = attempt.status;
+        task.events.push({
+          type: "CAPTURE_RESPONSE",
+          at: attempt.finishedAt,
+          status: attempt.status,
+          captureId: attempt.captureId,
+        });
+        auth.updatedAt = attempt.finishedAt;
+        saveState();
+        return { auth, task, captureAttempted: true };
+      } catch (error) {
+        attempt.status = classifyCaptureFailure(error);
+        attempt.errorStatus = error.status || null;
+        attempt.finishedAt = new Date().toISOString();
+        task.captureStatus = attempt.status;
+        task.events.push({
+          type: "CAPTURE_ERROR",
+          at: attempt.finishedAt,
+          status: attempt.status,
+          httpStatus: attempt.errorStatus,
+        });
+        auth.updatedAt = attempt.finishedAt;
+        saveState();
+        return { auth, task, captureAttempted: true };
+      }
+    });
+
+    const proofReceipt = createProofReceipt({
+      authorizationId,
+      currency: result.auth.currency || "USD",
+      authorizationStatus: result.auth.status || null,
+      task: result.task,
+    });
+    const paymentOutcome = result.task.captureStatus === "COMPLETED" ? "CAPTURE_COMPLETED"
+      : result.task.captureStatus === "PENDING" ? "CAPTURE_PENDING"
+      : ["UNKNOWN", "IN_PROGRESS"].includes(result.task.captureStatus) ? "OUTCOME_UNCERTAIN"
+      : result.task.captureStatus === "FAILED" ? "CAPTURE_FAILED"
+      : "CAPTURE_NOT_COMPLETED";
+    res.json({
+      authorizationId,
+      task: result.task,
+      checks: result.task.verificationChecks || [],
+      captureAttempted: result.captureAttempted,
+      capture: {
+        captureId: result.task.captureId || null,
+        status: result.task.captureStatus,
+        amount: result.task.amount,
+      },
+      paymentOutcome,
+      proofReceipt,
+      message: result.task.captureStatus === "COMPLETED"
+        ? "The artifact passed verification and PayPal reports the task capture as COMPLETED."
+        : "A capture attempt was recorded but did not return a confirmed COMPLETED status. Reconcile the recorded attempt before any further payment action.",
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+// Recompute Proof Receipt hashes. Optional original bytes verify artifact provenance.
+app.post("/api/receipts/verify", (req, res) => {
+  const body = req.body || {};
+  if (!body.receipt || typeof body.receipt !== "object" || Array.isArray(body.receipt)) {
+    return res.status(400).json({ error: "Provide a receipt JSON object." });
+  }
+  if (body.artifactContent !== undefined && typeof body.artifactContent !== "string") {
+    return res.status(400).json({ error: "artifactContent must be text when supplied." });
+  }
+  if (typeof body.artifactContent === "string" &&
+      Buffer.byteLength(body.artifactContent, "utf8") > 20 * 1024) {
+    return res.status(413).json({ error: "artifactContent exceeds the 20 KB verification limit." });
+  }
+  const result = verifyProofReceipt(body.receipt, { artifactContent: body.artifactContent });
+  res.status(result.valid ? 200 : 422).json(result);
+});
+
 app.get("/api/scenarios", (_req, res) => {
   res.json({ simulationOnly: true, paymentSideEffects: false, scenarios: listScenarios() });
 });
