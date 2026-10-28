@@ -45,9 +45,9 @@ The controlled demo's intended results are Task A $15 PASS, Task B $20 PASS, Tas
 
 5. Run `npm run test:groq` to check the live Groq API integration without touching PayPal. This sends a small test prompt to Groq and may incur API usage; it prints the decision and latency but never makes a payment request.
 6. To evaluate semantic decisions on the small labelled synthetic fixture set, run `npm run evaluate:groq`. This makes several live Groq requests and no payment requests. It reports observed metrics; do not treat the fixture set as an accuracy benchmark or ground-truth dataset.
-6. Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
-7. First click **Preview verification (no payment)**. This exercises the verifier but never creates or changes a PayPal transaction. With `GROQ_API_KEY` configured, this does call Groq and may incur API usage cost.
-8. For a full payment demo, create an order, approve it using a sandbox Personal buyer, authorize it, then run the demo on the new authorization. Never reuse a completed or voided authorization.
+7. Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
+8. First click **Preview verification (no payment)**. This exercises the verifier but never creates or changes a PayPal transaction. With `GROQ_API_KEY` configured, this does call Groq and may incur API usage cost.
+9. For a full payment demo, create an order, approve it using a sandbox Personal buyer, authorize it, then run the demo on the new authorization. Never reuse a completed or voided authorization.
 
 ## Verification and payment policy
 
