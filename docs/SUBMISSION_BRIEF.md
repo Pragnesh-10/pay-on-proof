@@ -76,6 +76,7 @@ This is a **hackathon sandbox prototype**, not a production payment service.
 - The JSON state and in-process mutation queue are not safe for multi-instance deployments.
 - Do not submit real personal, financial, or confidential work evidence.
 - If a capture result is uncertain, do not guess. Reconcile the exact capture attempt and review PayPal status before voiding or starting another capture. Human review does not bypass unresolved-capture safeguards.
+- Proof Receipt hashes detect changes to recorded snapshots, not dishonest or false evidence. Human review does not bypass unresolved-capture safeguards.
 - Proof Receipt hashes detect changes to recorded snapshots, not dishonest or false evidence.
 - A resolved run that stopped mid-sequence is not resumed automatically.
 
