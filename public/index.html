@@ -231,6 +231,8 @@
       $("captured").textContent = money(data.captureTotals.committedCents);
       $("uncertain").textContent = money(data.captureTotals.uncertainCents);
     }
+    $("paymentNotice").textContent =
+      "Live sandbox session selected. Authorization status comes from PayPal; totals reflect recorded capture attempts.";
 
     const state = await api("/api/state");
     const auth = state.authorizations?.[id];
@@ -253,6 +255,7 @@
 
   $("createOrder").addEventListener("click", () => action(async () => {
     const data = await api("/api/orders", { method: "POST" });
+    $("paymentNotice").textContent = "Live sandbox order created. No capture occurs until a task passes verification.";
     $("orderId").value = data.orderId || "";
     showAudit(data);
 
@@ -272,6 +275,7 @@
       "/api/orders/" + encodeURIComponent(orderId) + "/authorize",
       { method: "POST" }
     );
+    $("paymentNotice").textContent = "Live sandbox authorization recorded. Capture eligibility is decided by the backend verifier.";
 
     if (data.authorizationId) {
       $("authorizationId").value = data.authorizationId;
