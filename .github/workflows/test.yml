@@ -26,5 +26,6 @@ jobs:
         run: |
           node --check server.js
           node --check lib/verifier.js
+          node -e 'const fs=require("node:fs"); const vm=require("node:vm"); const html=fs.readFileSync("public/index.html","utf8"); const match=html.match(/<script>([\\s\\S]*?)<\\/script>/); if(!match) throw new Error("Dashboard script not found"); new vm.Script(match[1]); console.log("Dashboard JavaScript syntax OK");'
       - name: Run verifier tests
         run: npm test
