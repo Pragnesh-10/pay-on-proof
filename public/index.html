@@ -7,182 +7,425 @@
   <title>Pay-on-Proof | Agentic Payments</title>
   <style>
     :root {
-      color-scheme: dark;
-      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-      background: #0b1020;
-      color: #edf2ff;
+      color-scheme: light;
+      --ink: #17233d;
+      --ink-soft: #4e5d79;
+      --muted: #72809a;
+      --canvas: #f3f6fb;
+      --surface: #ffffff;
+      --surface-soft: #f8faff;
+      --line: #e1e7f1;
+      --line-strong: #cfd8e8;
+      --sidebar: #101a32;
+      --sidebar-soft: #1c2947;
+      --brand: #435fe6;
+      --brand-hover: #344fc9;
+      --brand-soft: #edf0ff;
+      --success: #137a55;
+      --success-bg: #eaf8f1;
+      --danger: #b93848;
+      --danger-bg: #fff0f1;
+      --warning: #99620c;
+      --warning-bg: #fff6df;
+      --shadow: 0 8px 24px rgba(28, 46, 86, .06);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--canvas);
+      color: var(--ink);
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; }
-    main { max-width: 1050px; margin: auto; padding: 32px 20px 60px; }
-    header { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-    .eyebrow { color: #9aabff; text-transform: uppercase; letter-spacing: .14em; font-size: 12px; }
-    h1 { margin: 8px 0; font-size: clamp(30px, 5vw, 46px); }
-    h2 { font-size: 18px; }
-    p { color: #aab6d4; line-height: 1.6; }
-    .panel, .metric, .task {
-      border: 1px solid #273250; border-radius: 16px;
-      background: #121a2e; padding: 20px;
+    html { scroll-behavior: smooth; scroll-padding-top: 28px; }
+    body { margin: 0; min-width: 320px; background: var(--canvas); }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { opacity: .55; cursor: wait; }
+    button:focus-visible, input:focus-visible, a:focus-visible {
+      outline: 3px solid rgba(67,95,230,.28); outline-offset: 2px;
     }
-    .panel { margin-top: 22px; }
-    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 24px; }
-    .metric small { color: #aab6d4; }
-    .metric strong { display: block; font-size: 27px; margin-top: 10px; }
-    .tasks { display: grid; gap: 12px; }
-    .task-head { display: flex; justify-content: space-between; gap: 12px; }
-    .task h3 { margin: 0; font-size: 16px; }
-    .task p { margin-bottom: 8px; }
-    .status { font-size: 12px; font-weight: 700; letter-spacing: .04em; }
-    .pass { color: #70e2b0; }
-    .fail { color: #ff9a9a; }
-    .review { color: #ffd27a; }
-    .muted { color: #aab6d4; }
-    code { overflow-wrap: anywhere; color: #c5d1ff; }
-    input {
-      width: 100%; padding: 12px; margin: 8px 0 12px;
-      border: 1px solid #354363; border-radius: 9px;
-      background: #0b1020; color: white;
-    }
-    button {
-      cursor: pointer; padding: 11px 15px; border: 0;
-      border-radius: 9px; background: #a8b6ff; color: #10152b;
-      font-weight: 700; margin: 4px 6px 4px 0;
-    }
-    button.secondary { background: #263452; color: #edf2ff; }
-    button:disabled { opacity: .45; cursor: wait; }
-    pre {
-      white-space: pre-wrap; overflow-wrap: anywhere;
-      color: #c4d0eb; background: #0b1020; padding: 14px;
-      border-radius: 10px; font-size: 12px;
-    }
-    #message { min-height: 24px; }
+    a { color: inherit; }
+    .app-shell { display: grid; grid-template-columns: 244px minmax(0, 1fr); max-width: 1680px; min-height: 100vh; margin: 0 auto; }
+    .sidebar { position: sticky; top: 0; height: 100vh; padding: 28px 16px 18px; display: flex; flex-direction: column; background: var(--sidebar); color: #edf2ff; }
+    .brand { display: flex; align-items: center; gap: 11px; padding: 0 10px 28px; }
+    .brand-mark { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 13px; background: linear-gradient(145deg,#7386ff,#435fe6); box-shadow: 0 6px 16px rgba(67,95,230,.35); color:#fff; font-size: 20px; font-weight: 850; }
+    .brand-name { font-size: 16px; font-weight: 780; letter-spacing: -.025em; }
+    .brand-sub { margin-top: 3px; color: #99a8c9; font-size: 10px; font-weight: 750; letter-spacing: .15em; text-transform: uppercase; }
+    .nav-label { padding: 0 12px 9px; color: #7e8eb1; font-size: 10px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+    .side-nav { display: grid; gap: 5px; }
+    .side-nav a { display: flex; align-items: center; gap: 11px; min-height: 43px; padding: 10px 12px; border-radius: 10px; text-decoration: none; color: #b9c5df; font-size: 13px; font-weight: 620; transition: background .16s ease,color .16s ease; }
+    .side-nav a:hover { background: rgba(255,255,255,.06); color: #fff; }
+    .side-nav a.active { color: #fff; background: #27375f; box-shadow: inset 3px 0 0 #8191ff; }
+    .nav-icon { display: grid; place-items: center; width: 20px; color: #9cadd2; font-size: 16px; }
+    .sidebar-bottom { margin-top: auto; }
+    .sandbox-card { padding: 14px; border: 1px solid rgba(198,211,242,.16); border-radius: 13px; background: rgba(255,255,255,.04); }
+    .sandbox-label { display:flex; align-items:center; gap:7px; color:#dce5ff; font-size:12px; font-weight:760; }
+    .dot { width:7px; height:7px; border-radius:50%; background:#55d6a0; box-shadow:0 0 0 4px rgba(85,214,160,.12); }
+    .sandbox-card p { margin:8px 0 0; color:#9aa9c7; font-size:11px; line-height:1.55; }
+    .main-content { min-width: 0; padding: 30px clamp(18px, 3.2vw, 48px) 48px; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:28px; }
+    .breadcrumb { display:flex; align-items:center; gap:9px; color:var(--muted); font-size:12px; }
+    .breadcrumb strong { color:var(--ink-soft); font-weight:700; }
+    .topbar-right { display:flex; align-items:center; gap:10px; }
+    .environment-badge { display:inline-flex; align-items:center; gap:7px; padding:8px 11px; border:1px solid #cfe9dc; border-radius:999px; color:var(--success); background:#f4fcf8; font-size:11px; font-weight:800; letter-spacing:.04em; }
+    .avatar { display:grid; place-items:center; width:34px; height:34px; border-radius:50%; background:#e7ecff; color:#4055b4; font-size:11px; font-weight:850; }
+    .hero { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; margin-bottom:24px; }
+    .eyebrow { color:var(--brand); font-size:10px; font-weight:850; letter-spacing:.17em; text-transform:uppercase; }
+    h1 { margin:8px 0 9px; font-size:clamp(28px,3vw,38px); line-height:1.1; letter-spacing:-.045em; color:var(--ink); }
+    h2 { margin:0; font-size:16px; line-height:1.3; letter-spacing:-.02em; }
+    h3 { color:var(--ink); }
+    p { color:var(--muted); line-height:1.6; }
+    .hero p { max-width:650px; margin:0; font-size:14px; }
+    .hero-status { min-width:190px; padding:14px 16px; background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); }
+    .hero-status-label { color:var(--muted); font-size:10px; font-weight:800; letter-spacing:.13em; text-transform:uppercase; }
+    #health { display:flex; align-items:center; gap:8px; margin-top:9px; color:var(--ink); font-size:13px; font-weight:760; }
+    .metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin-bottom:22px; }
+    .metric { position:relative; min-width:0; padding:19px 20px; border:1px solid var(--line); border-radius:15px; background:var(--surface); box-shadow:var(--shadow); }
+    .metric-head { display:flex; align-items:center; gap:9px; color:var(--muted); font-size:12px; font-weight:650; }
+    .metric-icon { display:grid; place-items:center; width:29px; height:29px; border-radius:9px; background:var(--brand-soft); color:var(--brand); font-size:15px; }
+    .metric strong { display:block; margin-top:14px; color:var(--ink); font-size:27px; letter-spacing:-.04em; font-variant-numeric:tabular-nums; }
+    .metric-foot { margin-top:7px; color:var(--muted); font-size:11px; }
+    .metric.success .metric-icon { color:var(--success); background:var(--success-bg); }
+    .metric.warning .metric-icon { color:var(--warning); background:var(--warning-bg); }
+    .panel { margin-top:18px; padding:23px; border:1px solid var(--line); border-radius:17px; background:var(--surface); box-shadow:var(--shadow); }
+    .panel-intro { margin:8px 0 0; max-width:780px; font-size:12px; }
     .section-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap; }
-    .section-head h2 { margin:0 0 8px; }
-    .section-head p { margin:0; max-width:720px; }
-    .pill { display:inline-flex; align-items:center; border:1px solid #344363; color:#aab6d4; padding:6px 9px; border-radius:999px; font-size:10px; letter-spacing:.1em; font-weight:800; white-space:nowrap; }
-    .pill.warning { color:#ffd27a; border-color:#79623a; }
-    .scenario-buttons { display:flex; flex-wrap:wrap; gap:6px; margin:16px 0; }
-    .scenario-result { margin-top:12px; padding:16px; border:1px solid #354363; border-radius:12px; background:#0b1020; }
-    .scenario-result h3 { margin:0 0 8px; }
-    .empty-state { padding:14px; border:1px dashed #354363; border-radius:12px; color:#aab6d4; }
-    .review-form { display:grid; grid-template-columns:1fr 2fr; gap:8px; margin-top:14px; }
-    .review-form label { font-size:12px; color:#aab6d4; }
-    .review-form input { margin:5px 0 0; }
-    .task-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
-    .receipt-meta { font-size:12px; color:#aab6d4; overflow-wrap:anywhere; }
-    .task .task-head { align-items:flex-start; }
-    @media (max-width: 650px) {
-      .review-form { grid-template-columns:1fr; }
-      main { padding:22px 14px 40px; }
+    .section-head p { margin:7px 0 0; max-width:760px; font-size:12px; }
+    .pill { display:inline-flex; align-items:center; gap:6px; padding:7px 10px; border:1px solid var(--line); border-radius:999px; background:#fbfcff; color:var(--ink-soft); font-size:9px; font-weight:850; letter-spacing:.12em; white-space:nowrap; }
+    .pill.warning { color:var(--warning); border-color:#f0dfb6; background:var(--warning-bg); }
+    .pill.success { color:var(--success); border-color:#cfe9dc; background:var(--success-bg); }
+    .stepper { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:0; margin:26px 0 0; padding:0; list-style:none; }
+    .stepper li { position:relative; display:flex; align-items:center; gap:10px; min-width:0; padding:0 10px 0 0; color:#98a3b7; font-size:11px; font-weight:720; }
+    .stepper li:not(:last-child)::after { content:""; position:absolute; height:1px; left:34px; right:12px; top:15px; background:var(--line-strong); transform:translateX(14px); }
+    .step-number { z-index:1; display:grid; place-items:center; flex:0 0 30px; width:30px; height:30px; border:1px solid var(--line-strong); border-radius:50%; background:#fff; color:var(--muted); font-size:11px; font-weight:850; }
+    .stepper li:first-child .step-number { background:var(--brand-soft); border-color:#d7deff; color:var(--brand); }
+    .session-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; margin-top:23px; }
+    .subpanel { min-width:0; padding:18px; border:1px solid var(--line); border-radius:13px; background:var(--surface-soft); }
+    .subpanel-title { display:flex; align-items:center; gap:10px; margin-bottom:7px; }
+    .number-badge { display:grid; place-items:center; width:29px; height:29px; border-radius:9px; background:#e8edff; color:var(--brand); font-size:12px; font-weight:850; }
+    .subpanel h3 { margin:0; font-size:13px; letter-spacing:-.01em; }
+    .subpanel p { margin:0 0 14px; font-size:11px; }
+    .field-grid { display:grid; gap:10px; }
+    .field { display:grid; gap:6px; }
+    label { color:#485773; font-size:11px; font-weight:760; }
+    input { width:100%; min-width:0; padding:11px 12px; border:1px solid var(--line-strong); border-radius:9px; background:#fff; color:var(--ink); font-size:12px; transition:border-color .16s ease,box-shadow .16s ease; }
+    input::placeholder { color:#a3aec1; }
+    input:focus { outline:none; border-color:#8798fa; box-shadow:0 0 0 3px rgba(67,95,230,.10); }
+    .button-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+    button { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:39px; padding:10px 14px; border:1px solid transparent; border-radius:9px; background:var(--brand); color:#fff; font-size:11px; font-weight:800; letter-spacing:.005em; transition:transform .12s ease,background .12s ease,border-color .12s ease,box-shadow .12s ease; }
+    button:hover:not(:disabled) { background:var(--brand-hover); box-shadow:0 4px 10px rgba(67,95,230,.15); }
+    button:active:not(:disabled) { transform:translateY(1px); }
+    button.secondary { border-color:var(--line-strong); background:#fff; color:#43516d; }
+    button.secondary:hover:not(:disabled) { border-color:#aab7d1; background:#f6f8ff; box-shadow:none; }
+    button.danger { border-color:#f0cbd0; background:#fff7f8; color:var(--danger); }
+    button.danger:hover:not(:disabled) { border-color:#e6a3ad; background:var(--danger-bg); box-shadow:none; }
+    button.small { min-height:32px; padding:7px 10px; font-size:10px; }
+    .notice { display:flex; align-items:flex-start; gap:10px; margin-top:15px; padding:12px 13px; border:1px solid #d8e2ff; border-radius:10px; background:#f5f7ff; color:#52628e; font-size:11px; line-height:1.55; }
+    .notice strong { color:#344b9b; }
+    .notice-icon { flex:0 0 auto; font-weight:900; }
+    #message { min-height:0; margin:12px 0 0; color:var(--ink-soft); font-size:12px; }
+    .status-message { padding:10px 12px; border-radius:9px; background:#f4f6fa; color:#475873 !important; }
+    .status-message.error { background:var(--danger-bg); color:var(--danger) !important; }
+    .status-message.success { background:var(--success-bg); color:var(--success) !important; }
+    .scenario-buttons { display:flex; flex-wrap:wrap; gap:8px; margin:19px 0 14px; }
+    .scenario-buttons button { min-width:140px; }
+    .scenario-buttons button[data-scenario="pass"] { background:#197a59; }
+    .scenario-buttons button[data-scenario="pass"]:hover:not(:disabled) { background:#116848; }
+    .scenario-buttons button[data-scenario="review"] { color:#80550d; border-color:#eed9a6; background:#fff6df; }
+    .scenario-buttons button[data-scenario="review"]:hover:not(:disabled) { background:#fff0c5; }
+    .scenario-buttons button[data-scenario="fail"] { color:#b93848; border-color:#f0cbd0; background:#fff0f1; }
+    .scenario-buttons button[data-scenario="fail"]:hover:not(:disabled) { background:#ffe3e6; }
+    .scenario-result { margin-top:12px; padding:18px; border:1px solid var(--line); border-radius:13px; background:#fbfcff; }
+    .scenario-result h3 { margin:0 0 8px; font-size:14px; }
+    .scenario-result p { margin:7px 0; font-size:12px; }
+    .empty-state { display:flex; align-items:flex-start; gap:12px; padding:17px; border:1px dashed #ced7e7; border-radius:12px; background:#fbfcff; color:var(--muted); font-size:12px; line-height:1.6; }
+    .empty-state::before { content:"i"; display:grid; place-items:center; flex:0 0 22px; width:22px; height:22px; border-radius:50%; background:#eaf0ff; color:var(--brand); font-size:12px; font-weight:850; }
+    .tasks { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:17px; }
+    .tasks > .empty-state { grid-column:1 / -1; }
+    .task { min-width:0; padding:17px; border:1px solid var(--line); border-radius:13px; background:#fff; }
+    .task-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+    .task h3 { margin:0; font-size:13px; line-height:1.45; }
+    .task p { margin:9px 0; color:var(--ink-soft); font-size:11px; line-height:1.55; }
+    .status { display:inline-flex; align-items:center; gap:6px; flex:0 0 auto; padding:6px 8px; border-radius:7px; background:#f0f3f8; color:#63718a; font-size:9px; font-weight:900; letter-spacing:.08em; }
+    .status.pass { background:var(--success-bg); color:var(--success); }
+    .status.fail { background:var(--danger-bg); color:var(--danger); }
+    .status.review { background:var(--warning-bg); color:var(--warning); }
+    .pass { color:var(--success); }
+    .fail { color:var(--danger); }
+    .review { color:var(--warning); }
+    .muted { color:var(--muted); }
+    .receipt-meta { color:var(--muted); font-size:10px !important; overflow-wrap:anywhere; }
+    pre { margin:8px 0; max-height:250px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; border:1px solid #e3e8f2; border-radius:9px; padding:12px; background:#f6f8fc; color:#41506c; font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; }
+    code { overflow-wrap:anywhere; color:#405bd2; font:11px ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; }
+    .review-form { display:grid; grid-template-columns:minmax(100px, .8fr) minmax(0,1.7fr); gap:9px; margin-top:13px; }
+    .review-form label { display:grid; gap:6px; font-size:10px; }
+    .review-form input { font-size:11px; }
+    .task-actions { display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; }
+    .audit-toggle { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .audit-description { margin:7px 0 0; font-size:11px; }
+    #audit { margin-top:15px; max-height:440px; }
+    .footer-note { display:flex; align-items:flex-start; gap:10px; margin:24px 2px 0; color:var(--muted); font-size:10px; line-height:1.6; }
+    .footer-note strong { color:#53627c; }
+    .hidden { display:none !important; }
+    @media (max-width: 1080px) {
+      .app-shell { grid-template-columns:210px minmax(0,1fr); }
+      .sidebar { padding-inline:12px; }
+      .main-content { padding-inline:24px; }
+      .tasks { grid-template-columns:1fr; }
     }
-
-    @media (max-width: 650px) {
-      .metrics { grid-template-columns: 1fr; }
+    @media (max-width: 800px) {
+      .app-shell { display:block; }
+      .sidebar { position:static; height:auto; padding:13px 16px; }
+      .brand { padding:0 2px 12px; }
+      .nav-label, .sidebar-bottom { display:none; }
+      .side-nav { display:flex; gap:6px; overflow-x:auto; padding-bottom:3px; scrollbar-width:thin; }
+      .side-nav a { flex:0 0 auto; min-height:36px; padding:8px 10px; font-size:11px; }
+      .nav-icon { width:15px; }
+      .main-content { padding:24px 18px 36px; }
+      .topbar { margin-bottom:22px; }
+      .session-grid { grid-template-columns:1fr; }
+    }
+    @media (max-width: 560px) {
+      .main-content { padding:20px 13px 30px; }
+      .topbar { align-items:flex-start; }
+      .breadcrumb { font-size:11px; }
+      .environment-badge { padding:7px 8px; font-size:9px; }
+      .avatar { display:none; }
+      .hero { display:block; }
+      .hero-status { margin-top:17px; }
+      .metrics { grid-template-columns:1fr; gap:9px; }
+      .metric { padding:15px 17px; }
+      .metric strong { margin-top:8px; font-size:24px; }
+      .stepper { grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 8px; }
+      .stepper li:not(:last-child)::after { display:none; }
+      .panel { padding:17px 14px; border-radius:14px; }
+      .subpanel { padding:14px; }
+      .scenario-buttons { display:grid; grid-template-columns:1fr; }
+      .scenario-buttons button { width:100%; }
+      .review-form { grid-template-columns:1fr; }
+      .task { padding:14px; }
+      .button-row button { width:100%; }
+      .section-head { gap:10px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior:auto !important; transition:none !important; }
     }
   </style>
 </head>
 <body>
-<main>
-  <header>
-    <div>
-      <div class="eyebrow">Agentic commerce · Sandbox</div>
-      <h1>Pay-on-Proof</h1>
-      <p>Work first. Verify the evidence. Pay only for passing tasks.</p>
-    </div>
-    <div class="panel" style="margin:0">
-      <span class="muted">Backend</span>
-      <div id="health">Checking…</div>
-    </div>
-  </header>
-
-  <section class="metrics">
-    <div class="metric"><small>Captured</small><strong id="captured">$0.00</strong></div>
-    <div class="metric"><small>Uncertain captures</small><strong id="uncertain">$0.00</strong></div>
-    <div class="metric"><small>Authorization</small><strong id="authStatus">—</strong></div>
-  </section>
-
-  <section class="panel">
-    <h2>Payment session</h2>
-    <p>Create a new $50 sandbox order. Approve it in PayPal, then authorize it using the order ID.</p>
-    <button id="createOrder">1. Create order</button>
-    <label for="orderId">Order ID</label>
-    <input id="orderId" placeholder="Paste the order ID here">
-    <button id="authorize" class="secondary">2. Authorize order</button>
-
-    <hr style="border-color:#273250; margin:20px 0">
-
-    <label for="authorizationId">Authorization ID</label>
-    <input id="authorizationId" placeholder="Paste the authorization ID here">
-    <button id="previewVerifier" class="secondary">Preview verification (no payment)</button>
-    <button id="runDemo">3. Run task demo</button>
-    <button id="refresh" class="secondary">Refresh status</button>
-    <button id="reconcile" class="secondary">Reconcile uncertain captures</button>
-    <button id="voidAuth" class="secondary">Void remaining authorization</button>
-    <p id="paymentNotice" class="muted" role="status">Preview mode has no payment side effects. Live payment actions use PayPal sandbox credentials.</p>
-    <p id="message" role="status"></p>
-  </section>
-
-  <section class="panel">
-    <div class="section-head">
+<div class="app-shell" id="overview">
+  <aside class="sidebar" aria-label="Primary navigation">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">P</div>
       <div>
-        <h2>Three-scenario simulator</h2>
-        <p>Try PASS, REVIEW, and FAIL using synthetic evidence. These scenarios never call PayPal or capture money.</p>
-      </div>
-      <span class="pill">PAYMENT-FREE</span>
-    </div>
-    <div class="scenario-buttons">
-      <button data-scenario="pass">Simulate PASS</button>
-      <button data-scenario="review" class="secondary">Simulate REVIEW</button>
-      <button data-scenario="fail" class="secondary">Simulate FAIL</button>
-    </div>
-    <div id="scenarioResult" class="empty-state">Choose a scenario to see its evidence, decision, payment policy, and simulation-only Proof Receipt.</div>
-  </section>
-
-  <section class="panel">
-    <h2>Task verification</h2>
-    <p>Each payment decision is linked to a task's acceptance criteria and evidence.</p>
-    <div id="tasks" class="tasks">
-      <p class="muted">Run the demo or load a saved session to view task results.</p>
-    </div>
-  </section>
-
-  <section class="panel">
-    <div class="section-head">
-      <div>
-        <h2>Human review queue</h2>
-        <p>Only an actual task marked REVIEW can be reviewed here. Approval can trigger a real PayPal sandbox capture; rejection cannot.</p>
-      </div>
-      <span class="pill warning">LOCAL DEMO ONLY</span>
-    </div>
-    <div id="reviewQueue" class="tasks">
-      <p class="muted">Load a saved authorization or run the demo to check for tasks requiring human review.</p>
-    </div>
-  </section>
-
-  <section class="panel">
-    <div class="section-head">
-      <div>
-        <h2>Proof Receipts</h2>
-        <p>Export the recorded evidence, acceptance criteria, verifier provenance, review decisions, payment status, event history, and SHA-256 integrity hashes.</p>
+        <div class="brand-name">Pay-on-Proof</div>
+        <div class="brand-sub">Agentic payments</div>
       </div>
     </div>
-    <button id="downloadAllReceipts" class="secondary">Download all receipts for this authorization</button>
-    <p class="muted">A hash detects changes to the recorded snapshot; it does not prove that the evidence is true. Pending or uncertain financial states must still be checked with PayPal.</p>
-  </section>
 
-  <section class="panel">
-    <h2>Audit response</h2>
-    <pre id="audit">No response loaded yet.</pre>
-  </section>
-</main>
+    <div class="nav-label">Workspace</div>
+    <nav class="side-nav">
+      <a class="active" href="#overview"><span class="nav-icon" aria-hidden="true">⌂</span>Overview</a>
+      <a href="#simulator"><span class="nav-icon" aria-hidden="true">◇</span>Scenario lab</a>
+      <a href="#session"><span class="nav-icon" aria-hidden="true">▣</span>Payment session</a>
+      <a href="#tasks-section"><span class="nav-icon" aria-hidden="true">☷</span>Task verification</a>
+      <a href="#review-section"><span class="nav-icon" aria-hidden="true">◎</span>Human review</a>
+      <a href="#receipts-section"><span class="nav-icon" aria-hidden="true">▤</span>Proof receipts</a>
+      <a href="#audit-section"><span class="nav-icon" aria-hidden="true">⌁</span>Audit log</a>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <div class="sandbox-card">
+        <div class="sandbox-label"><span class="dot"></span>Sandbox environment</div>
+        <p>This prototype uses PayPal sandbox credentials. Payment actions are not production transactions.</p>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <div class="topbar">
+      <div class="breadcrumb"><span>Workspace</span><span aria-hidden="true">/</span><strong>Overview</strong></div>
+      <div class="topbar-right">
+        <span class="environment-badge"><span class="dot"></span> SANDBOX MODE</span>
+        <div class="avatar" aria-label="Local demo operator">OP</div>
+      </div>
+    </div>
+
+    <header class="hero">
+      <div>
+        <div class="eyebrow">Evidence-gated commerce</div>
+        <h1>Good work deserves proof.</h1>
+        <p>Verify each task against its acceptance criteria. Release payment only through the backend when the required checks pass.</p>
+      </div>
+      <div class="hero-status">
+        <div class="hero-status-label">System connection</div>
+        <div id="health" role="status" aria-live="polite">Checking backend…</div>
+      </div>
+    </header>
+
+    <section class="metrics" aria-label="Payment overview">
+      <div class="metric success">
+        <div class="metric-head"><span class="metric-icon" aria-hidden="true">↗</span>Captured amount</div>
+        <strong id="captured">$0.00</strong>
+        <div class="metric-foot">Confirmed and pending captures</div>
+      </div>
+      <div class="metric warning">
+        <div class="metric-head"><span class="metric-icon" aria-hidden="true">◷</span>Uncertain amount</div>
+        <strong id="uncertain">$0.00</strong>
+        <div class="metric-foot">Reserved until reconciliation</div>
+      </div>
+      <div class="metric">
+        <div class="metric-head"><span class="metric-icon" aria-hidden="true">▣</span>Authorization status</div>
+        <strong id="authStatus">—</strong>
+        <div class="metric-foot">Refresh to confirm status with PayPal</div>
+      </div>
+    </section>
+
+    <section class="panel" id="session">
+      <div class="section-head">
+        <div>
+          <h2>Payment session</h2>
+          <p>Use a fresh $50 USD sandbox authorization for the live workflow. Preview and simulation flows never move money.</p>
+        </div>
+        <span class="pill">4-STEP WORKFLOW</span>
+      </div>
+
+      <ol class="stepper" aria-label="Payment workflow">
+        <li><span class="step-number">1</span><span>Create order</span></li>
+        <li><span class="step-number">2</span><span>Approve & authorize</span></li>
+        <li><span class="step-number">3</span><span>Verify tasks</span></li>
+        <li><span class="step-number">4</span><span>Reconcile & close</span></li>
+      </ol>
+
+      <div class="session-grid">
+        <div class="subpanel">
+          <div class="subpanel-title"><span class="number-badge">01</span><h3>Create and authorize</h3></div>
+          <p>Create a sandbox order, approve it using the sandbox buyer, then submit its order ID to authorize the payment.</p>
+          <div class="field-grid">
+            <div class="field">
+              <label for="orderId">PayPal order ID</label>
+              <input id="orderId" autocomplete="off" spellcheck="false" placeholder="Order ID appears here after creation">
+            </div>
+          </div>
+          <div class="button-row">
+            <button id="createOrder">＋ Create sandbox order</button>
+            <button id="authorize" class="secondary">Authorize order</button>
+          </div>
+        </div>
+
+        <div class="subpanel">
+          <div class="subpanel-title"><span class="number-badge">02</span><h3>Run and manage tasks</h3></div>
+          <p>Paste the authorization ID returned by PayPal. Run verification once, then use status/reconciliation before closing the authorization.</p>
+          <div class="field-grid">
+            <div class="field">
+              <label for="authorizationId">PayPal authorization ID</label>
+              <input id="authorizationId" autocomplete="off" spellcheck="false" placeholder="Authorization ID">
+            </div>
+          </div>
+          <div class="button-row">
+            <button id="runDemo">Run task demo <span aria-hidden="true">→</span></button>
+            <button id="previewVerifier" class="secondary">Preview only</button>
+          </div>
+          <div class="button-row">
+            <button id="refresh" class="secondary small">Refresh status</button>
+            <button id="reconcile" class="secondary small">Reconcile uncertain</button>
+            <button id="voidAuth" class="danger small">Void remainder</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="notice" id="paymentNotice" role="status" aria-live="polite">
+        <span class="notice-icon" aria-hidden="true">ⓘ</span>
+        <span><strong>Sandbox only.</strong> Preview and simulator actions do not call PayPal payment endpoints. Live capture and void actions affect the selected PayPal sandbox authorization.</span>
+      </div>
+      <p id="message" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="panel" id="simulator">
+      <div class="section-head">
+        <div>
+          <h2>Scenario lab</h2>
+          <p>Explore the three possible decision paths with synthetic evidence. Every scenario is payment-free and shows a simulation-only Proof Receipt.</p>
+        </div>
+        <span class="pill success">NO PAYMENT SIDE EFFECTS</span>
+      </div>
+      <div class="scenario-buttons">
+        <button data-scenario="pass"><span aria-hidden="true">✓</span> Simulate PASS</button>
+        <button data-scenario="review"><span aria-hidden="true">◷</span> Simulate REVIEW</button>
+        <button data-scenario="fail"><span aria-hidden="true">×</span> Simulate FAIL</button>
+      </div>
+      <div id="scenarioResult" class="empty-state" aria-live="polite">Choose a scenario to inspect its evidence, decision, hypothetical payment outcome, and downloadable receipt.</div>
+    </section>
+
+    <section class="panel" id="tasks-section">
+      <div class="section-head">
+        <div>
+          <h2>Task verification</h2>
+          <p>See the original verifier decision, reason, evidence, source/model, capture status, and task-level receipt in one place.</p>
+        </div>
+        <span class="pill">TASK AUDIT</span>
+      </div>
+      <div id="tasks" class="tasks">
+        <div class="empty-state">Run a verification preview or load a saved authorization to see task results here.</div>
+      </div>
+    </section>
+
+    <section class="panel" id="review-section">
+      <div class="section-head">
+        <div>
+          <h2>Human review queue</h2>
+          <p>Ambiguous evidence needs a human decision. Review actions are recorded. Approval can initiate a real sandbox capture after backend policy checks.</p>
+        </div>
+        <span class="pill warning">LOCAL DEMO ONLY</span>
+      </div>
+      <div id="reviewQueue" class="tasks">
+        <div class="empty-state">Load or run a saved authorization to check for tasks that need review.</div>
+      </div>
+    </section>
+
+    <section class="panel" id="receipts-section">
+      <div class="section-head">
+        <div>
+          <h2>Proof receipts</h2>
+          <p>Download a structured record of the evidence, acceptance criteria, verifier provenance, reviewer decision, payment outcome, and integrity hashes.</p>
+        </div>
+        <span class="pill">JSON EXPORT</span>
+      </div>
+      <div class="notice">
+        <span class="notice-icon" aria-hidden="true">⌁</span>
+        <span>SHA-256 hashes can reveal changes to a recorded snapshot. They do not prove that evidence is true. Pending or uncertain payment outcomes must still be confirmed with PayPal.</span>
+      </div>
+      <div class="button-row">
+        <button id="downloadAllReceipts" class="secondary">↓ Download all receipts</button>
+      </div>
+    </section>
+
+    <section class="panel" id="audit-section">
+      <div class="audit-toggle">
+        <div>
+          <h2>Audit log</h2>
+          <p class="audit-description">Raw API response for debugging and judge inspection.</p>
+        </div>
+        <span class="pill">RAW JSON</span>
+      </div>
+      <pre id="audit">No response loaded yet. Run a preview, simulation, or payment action to populate the audit output.</pre>
+    </section>
+
+    <div class="footer-note">
+      <span aria-hidden="true">ⓘ</span>
+      <span><strong>Prototype safety note.</strong> This is local sandbox demo software, not a production payment service. API routes are unauthenticated; keep the server on 127.0.0.1 and never use real payment credentials or sensitive evidence.</span>
+    </div>
+  </main>
+</div>
 
 <script>
   const $ = (id) => document.getElementById(id);
   let busy = false;
   let activeAuthorizationId = "";
 
-  function message(text) {
-    $("message").textContent = text;
+  function message(text, kind = "") {
+    const node = $("message");
+    node.textContent = text;
+    node.className = "status-message" + (kind ? " " + kind : "");
   }
 
   function setBusy(value) {
@@ -190,6 +433,8 @@
     document.querySelectorAll("button").forEach((button) => {
       button.disabled = value;
     });
+    const main = document.querySelector(".main-content");
+    if (main) main.setAttribute("aria-busy", String(value));
   }
 
   async function api(path, options = {}) {
@@ -260,7 +505,7 @@
   function renderReviewQueue(tasks = [], authorizationId = activeAuthorizationId) {
     const root = $("reviewQueue");
     root.replaceChildren();
-    const candidates = tasks.filter((task) => task.verification === "REVIEW");
+    const candidates = tasks.filter((task) => task.verification === "REVIEW" && !task.review);
     if (!authorizationId || !candidates.length) {
       const empty = document.createElement("p");
       empty.className = "muted";
@@ -361,7 +606,10 @@
     root.replaceChildren();
 
     if (!tasks.length) {
-      root.innerHTML = '<p class="muted">No task results recorded for this session.</p>';
+      const empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = "No task results recorded for this view yet. Run a preview, simulation, or load a saved authorization.";
+      root.append(empty);
       return;
     }
 
@@ -472,7 +720,7 @@
     try {
       await fn();
     } catch (error) {
-      message(error.message);
+      message(error.message, "error");
     } finally {
       setBusy(false);
     }
@@ -511,7 +759,9 @@
 
   $("previewVerifier").addEventListener("click", () => action(async () => {
     const data = await api("/api/verification-preview", { method: "POST" });
-    renderTasks(data.tasks || []);
+    activeAuthorizationId = "";
+    renderTasks(data.tasks || [], false);
+    renderReviewQueue([], "");
     showAudit(data);
     $("paymentNotice").textContent =
       `Preview-only totals: ${data.totals?.captured || "0.00"} captured, ${data.totals?.uncertain || "0.00"} uncertain. No PayPal payment request was made.`;
@@ -521,6 +771,9 @@
   $("runDemo").addEventListener("click", () => action(async () => {
     const id = $("authorizationId").value.trim();
     if (!id) throw new Error("Enter an authorization ID first.");
+    if (!confirm(
+      "Run the controlled task workflow for this PayPal sandbox authorization? Tasks that pass may be captured (up to $35 total); FAIL and REVIEW tasks will not be captured. This action cannot be undone from the dashboard. Continue?"
+    )) return;
 
     const data = await api(
       "/api/authorizations/" + encodeURIComponent(id) + "/run-demo",
@@ -579,8 +832,10 @@
     button.addEventListener("click", () => action(async () => {
       const id = button.dataset.scenario;
       const data = await api("/api/scenarios/" + encodeURIComponent(id) + "/simulate", { method: "POST" });
+      activeAuthorizationId = "";
+      renderReviewQueue([], "");
       renderScenarioResult(data);
-      message("Scenario " + id.toUpperCase() + " simulated. No PayPal payment request was made.");
+      message("Scenario " + id.toUpperCase() + " simulated. No PayPal payment request was made.", "success");
     }));
   });
 
@@ -591,6 +846,35 @@
     const data = await api("/api/authorizations/" + encodeURIComponent(id) + "/receipts");
     downloadJson("pay-on-proof-" + id + "-proof-receipts.json", data);
     message("Downloaded " + data.receiptCount + " Proof Receipt(s).");
+  }));
+
+  // Keep the compact navigation in sync with the section currently in view.
+  const navLinks = Array.from(document.querySelectorAll(".side-nav a"));
+  const navSections = navLinks
+    .map((link) => document.querySelector(link.getAttribute("href")))
+    .filter(Boolean);
+  if ("IntersectionObserver" in window) {
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (!visible) return;
+      navLinks.forEach((link) => {
+        const active = link.getAttribute("href") === "#" + visible.target.id;
+        link.classList.toggle("active", active);
+        if (active) link.setAttribute("aria-current", "location");
+        else link.removeAttribute("aria-current");
+      });
+    }, { rootMargin: "-16% 0px -68% 0px", threshold: [0, .1, .25] });
+    navSections.forEach((section) => observer.observe(section));
+  }
+  navLinks.forEach((link) => link.addEventListener("click", () => {
+    navLinks.forEach((candidate) => {
+      const active = candidate === link;
+      candidate.classList.toggle("active", active);
+      if (active) candidate.setAttribute("aria-current", "location");
+      else candidate.removeAttribute("aria-current");
+    });
   }));
 
   api("/api/health").then((data) => {
