@@ -31,7 +31,10 @@ The intended full run captures $35 using two non-final partial captures and then
 - **Fail closed.** FAIL, REVIEW, malformed output, provider failure, or ambiguity never qualifies that task for capture.
 - **Task-level partial capture.** A passing task can be captured without finalizing the full authorization.
 - **Payment-provider reconciliation.** PayPal remains the authority for authorization/capture status. Ambiguous capture attempts stay reserved and can be reconciled with their original idempotency key.
-- **Inspectable audit trail.** The dashboard shows task evidence, acceptance criteria, verification decision, source/model provenance, capture status, and response payloads.
+- **Proof Receipts.** Each task can be exported with canonicalized evidence and acceptance-criteria SHA-256 hashes, a receipt hash, verifier provenance, human-review outcome, payment status, and event history. Hashes detect snapshot changes; they do not establish truth.
+- **Human review for ambiguity.** A REVIEW task can be explicitly approved or rejected with notes. Approval re-runs deterministic requirements, checks current PayPal authorization state and budget, refuses unresolved earlier captures, records the reviewer decision, and uses a stable request ID for a single capture attempt. Rejection makes no capture call.
+- **Three-scenario simulator.** PASS, REVIEW, and FAIL use synthetic fixtures and are explicitly simulation-only. They never call PayPal, and their receipts are marked non-authoritative.
+- **Inspectable audit trail.** The dashboard shows task evidence, acceptance criteria, verification decision, source/model provenance, capture status, review history, receipt downloads, and response payloads.
 
 ## Architecture at a glance
 
@@ -49,7 +52,9 @@ See [Architecture](ARCHITECTURE.md) for the sequence and trust boundaries.
 - $50 USD authorization order with a single purchase unit.
 - Explicit order approval and authorization steps; checkout return does not itself imply authorization.
 - Deterministic and optional AI-assisted verification.
-- Payment-free preview with zero capture attempts.
+- Payment-free verifier preview and PASS / REVIEW / FAIL simulator with zero payment side effects.
+- Downloadable single-task and bulk Proof Receipts with SHA-256 hashes and explicit simulation labeling.
+- Human-review queue with reviewer notes, deterministic re-checks, live authorization/budget checks, and audit events.
 - Partial capture for PASS tasks with `final_capture: false`.
 - A single-use demo guard per authorization.
 - Budget checks, capture idempotency IDs, uncertain-outcome tracking, reconciliation, and void verification.
@@ -67,10 +72,11 @@ See [Architecture](ARCHITECTURE.md) for the sequence and trust boundaries.
 This is a **hackathon sandbox prototype**, not a production payment service.
 
 - Use PayPal sandbox credentials only.
-- Keep the server local. API routes do not implement user authentication or authorization.
+- Keep the server local. API routes do not implement user authentication or authorization; reviewer names are unverified audit labels only.
 - The JSON state and in-process mutation queue are not safe for multi-instance deployments.
 - Do not submit real personal, financial, or confidential work evidence.
-- If a capture result is uncertain, do not guess. Reconcile the exact capture attempt and review PayPal status before voiding or starting another capture.
+- If a capture result is uncertain, do not guess. Reconcile the exact capture attempt and review PayPal status before voiding or starting another capture. Human review does not bypass unresolved-capture safeguards.
+- Proof Receipt hashes detect changes to recorded snapshots, not dishonest or false evidence.
 - A resolved run that stopped mid-sequence is not resumed automatically.
 
 ## Next steps beyond the hackathon
