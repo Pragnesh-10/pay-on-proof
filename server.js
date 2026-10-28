@@ -7,6 +7,10 @@ const {
   verifyWithGroq,
 } = require("./lib/verifier");
 const { createVerificationPreview } = require("./lib/verification-preview");
+const {
+  classifyCaptureFailure,
+  isUnresolvedCapture,
+} = require("./lib/payment-safety");
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -14,7 +18,7 @@ const path = require("node:path");
 
 const app = express();
 app.use(express.json({ limit: "10kb" }));
-app.use(express.static("public"));
+app.use(express.static(path.join(__dirname, "public")));
 const {
   PAYPAL_BASE_URL = "https://api-m.sandbox.paypal.com",
   PAYPAL_CLIENT_ID,
@@ -645,6 +649,7 @@ app.post(
 
           const captureAttempt = {
             requestId,
+            taskId: task.id,
             amount: task.amount,
             status: "IN_PROGRESS",
             startedAt: new Date().toISOString(),
@@ -714,9 +719,7 @@ app.post(
               };
             }
           } catch (error) {
-            captureAttempt.status = error.status
-              ? "FAILED"
-              : "UNKNOWN";
+            captureAttempt.status = classifyCaptureFailure(error);
             captureAttempt.errorStatus = error.status || null;
             captureAttempt.finishedAt = new Date().toISOString();
 
@@ -926,8 +929,10 @@ app.post(
             finalCapture: false,
           };
         } catch (error) {
-          // HTTP errors are explicit responses; network errors can be ambiguous.
-          attempt.status = error.status ? "FAILED" : "UNKNOWN";
+          // HTTP errors can still be ambiguous (for example a timeout or 5xx).
+          // Keep the amount reserved unless rejection is definitive. Reconcile
+          // with the same PayPal-Request-Id before any new capture or void.
+          attempt.status = classifyCaptureFailure(error);
           attempt.errorStatus = error.status || null;
           attempt.finishedAt = new Date().toISOString();
           local.updatedAt = new Date().toISOString();
@@ -968,11 +973,7 @@ app.post(
           throw error;
         }
 
-        const unresolved = local.captures.some((capture) =>
-          ["IN_PROGRESS", "UNKNOWN", "PENDING"].includes(
-            capture.status
-          )
-        );
+        const unresolved = local.captures.some(isUnresolvedCapture);
 
         if (unresolved) {
           const error = new Error(
@@ -1064,8 +1065,9 @@ app.get("/api/state", (_req, res) => {
   res.json(state);
 });
 
-app.listen(Number(PORT), () => {
+const HOST = process.env.HOST || "127.0.0.1";
+app.listen(Number(PORT), HOST, () => {
   console.log(
-    `Pay-on-Proof backend running at http://localhost:${PORT}`
+    `Pay-on-Proof backend running at http://${HOST}:${PORT}`
   );
 });
