@@ -432,6 +432,8 @@
     document.querySelectorAll("button").forEach((button) => {
       button.disabled = value;
     });
+    const main = document.querySelector(".main-content");
+    if (main) main.setAttribute("aria-busy", String(value));
   }
 
   async function api(path, options = {}) {
@@ -502,7 +504,7 @@
   function renderReviewQueue(tasks = [], authorizationId = activeAuthorizationId) {
     const root = $("reviewQueue");
     root.replaceChildren();
-    const candidates = tasks.filter((task) => task.verification === "REVIEW");
+    const candidates = tasks.filter((task) => task.verification === "REVIEW" && !task.review);
     if (!authorizationId || !candidates.length) {
       const empty = document.createElement("p");
       empty.className = "muted";
@@ -603,7 +605,10 @@
     root.replaceChildren();
 
     if (!tasks.length) {
-      root.innerHTML = '<p class="muted">No task results recorded for this session.</p>';
+      const empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = "No task results recorded for this view yet. Run a preview, simulation, or load a saved authorization.";
+      root.append(empty);
       return;
     }
 
@@ -714,7 +719,7 @@
     try {
       await fn();
     } catch (error) {
-      message(error.message);
+      message(error.message, "error");
     } finally {
       setBusy(false);
     }
@@ -753,7 +758,9 @@
 
   $("previewVerifier").addEventListener("click", () => action(async () => {
     const data = await api("/api/verification-preview", { method: "POST" });
-    renderTasks(data.tasks || []);
+    activeAuthorizationId = "";
+    renderTasks(data.tasks || [], false);
+    renderReviewQueue([], "");
     showAudit(data);
     $("paymentNotice").textContent =
       `Preview-only totals: ${data.totals?.captured || "0.00"} captured, ${data.totals?.uncertain || "0.00"} uncertain. No PayPal payment request was made.`;
@@ -821,8 +828,10 @@
     button.addEventListener("click", () => action(async () => {
       const id = button.dataset.scenario;
       const data = await api("/api/scenarios/" + encodeURIComponent(id) + "/simulate", { method: "POST" });
+      activeAuthorizationId = "";
+      renderReviewQueue([], "");
       renderScenarioResult(data);
-      message("Scenario " + id.toUpperCase() + " simulated. No PayPal payment request was made.");
+      message("Scenario " + id.toUpperCase() + " simulated. No PayPal payment request was made.", "success");
     }));
   });
 
@@ -833,6 +842,35 @@
     const data = await api("/api/authorizations/" + encodeURIComponent(id) + "/receipts");
     downloadJson("pay-on-proof-" + id + "-proof-receipts.json", data);
     message("Downloaded " + data.receiptCount + " Proof Receipt(s).");
+  }));
+
+  // Keep the compact navigation in sync with the section currently in view.
+  const navLinks = Array.from(document.querySelectorAll(".side-nav a"));
+  const navSections = navLinks
+    .map((link) => document.querySelector(link.getAttribute("href")))
+    .filter(Boolean);
+  if ("IntersectionObserver" in window) {
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (!visible) return;
+      navLinks.forEach((link) => {
+        const active = link.getAttribute("href") === "#" + visible.target.id;
+        link.classList.toggle("active", active);
+        if (active) link.setAttribute("aria-current", "location");
+        else link.removeAttribute("aria-current");
+      });
+    }, { rootMargin: "-16% 0px -68% 0px", threshold: [0, .1, .25] });
+    navSections.forEach((section) => observer.observe(section));
+  }
+  navLinks.forEach((link) => link.addEventListener("click", () => {
+    navLinks.forEach((candidate) => {
+      const active = candidate === link;
+      candidate.classList.toggle("active", active);
+      if (active) candidate.setAttribute("aria-current", "location");
+      else candidate.removeAttribute("aria-current");
+    });
   }));
 
   api("/api/health").then((data) => {
