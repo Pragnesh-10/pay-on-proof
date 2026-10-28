@@ -499,6 +499,47 @@ async function evaluateDemoTask(task) {
   }
 }
 
+// Preview the controlled task verifier without any payment side effects.
+// This endpoint never queries or mutates PayPal payment resources.
+app.post("/api/verification-preview", async (_req, res) => {
+  try {
+    const tasks = [];
+
+    for (const task of DEMO_TASKS) {
+      const verification = await evaluateDemoTask(task);
+      tasks.push({
+        taskId: task.id,
+        title: task.title,
+        amount: task.amount,
+        acceptance: task.acceptance,
+        evidence: task.evidence,
+        verification: verification.decision,
+        verificationSource: verification.source,
+        verificationModel: verification.model || null,
+        reason: verification.reason,
+        captureId: null,
+        captureStatus: "NOT_ATTEMPTED",
+        evaluatedAt: new Date().toISOString(),
+      });
+    }
+
+    res.json({
+      mode: process.env.OPENAI_API_KEY ? "hybrid" : "deterministic",
+      paymentSideEffects: false,
+      tasks,
+      totals: {
+        captured: "0.00",
+        uncertain: "0.00",
+      },
+      message: process.env.OPENAI_API_KEY
+        ? "Verification preview complete. No payment request was made."
+        : "Preview used deterministic checks because OPENAI_API_KEY is not configured. No payment request was made.",
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 // Run the controlled demo against a fresh authorization.
 // Passing tasks are captured; failed tasks capture nothing.
 app.post(
