@@ -320,10 +320,10 @@
       "/api/authorizations/" + encodeURIComponent(id) + "/reconcile",
       { method: "POST" }
     );
+    await refreshStatus();
     renderTasks(data.tasks || []);
     showAudit(data);
     message(data.message || "Reconciliation finished; inspect the results before taking further action.");
-    await refreshStatus();
   }));
 
   $("voidAuth").addEventListener("click", () => action(async () => {
