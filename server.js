@@ -858,7 +858,7 @@ app.post("/api/receipts/verify", (req, res) => {
     return res.status(413).json({ error: "artifactContent exceeds the 20 KB verification limit." });
   }
   const result = verifyProofReceipt(body.receipt, { artifactContent: body.artifactContent });
-  res.status(result.valid ? 200 : 422).json(result);
+  res.json(result);
 });
 
 app.get("/api/scenarios", (_req, res) => {
