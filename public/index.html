@@ -1,0 +1,317 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pay-on-Proof | Agentic Payments</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      background: #0b1020;
+      color: #edf2ff;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 1050px; margin: auto; padding: 32px 20px 60px; }
+    header { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .eyebrow { color: #9aabff; text-transform: uppercase; letter-spacing: .14em; font-size: 12px; }
+    h1 { margin: 8px 0; font-size: clamp(30px, 5vw, 46px); }
+    h2 { font-size: 18px; }
+    p { color: #aab6d4; line-height: 1.6; }
+    .panel, .metric, .task {
+      border: 1px solid #273250; border-radius: 16px;
+      background: #121a2e; padding: 20px;
+    }
+    .panel { margin-top: 22px; }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 24px; }
+    .metric small { color: #aab6d4; }
+    .metric strong { display: block; font-size: 27px; margin-top: 10px; }
+    .tasks { display: grid; gap: 12px; }
+    .task-head { display: flex; justify-content: space-between; gap: 12px; }
+    .task h3 { margin: 0; font-size: 16px; }
+    .task p { margin-bottom: 8px; }
+    .status { font-size: 12px; font-weight: 700; letter-spacing: .04em; }
+    .pass { color: #70e2b0; }
+    .fail { color: #ff9a9a; }
+    .muted { color: #aab6d4; }
+    code { overflow-wrap: anywhere; color: #c5d1ff; }
+    input {
+      width: 100%; padding: 12px; margin: 8px 0 12px;
+      border: 1px solid #354363; border-radius: 9px;
+      background: #0b1020; color: white;
+    }
+    button {
+      cursor: pointer; padding: 11px 15px; border: 0;
+      border-radius: 9px; background: #a8b6ff; color: #10152b;
+      font-weight: 700; margin: 4px 6px 4px 0;
+    }
+    button.secondary { background: #263452; color: #edf2ff; }
+    button:disabled { opacity: .45; cursor: wait; }
+    pre {
+      white-space: pre-wrap; overflow-wrap: anywhere;
+      color: #c4d0eb; background: #0b1020; padding: 14px;
+      border-radius: 10px; font-size: 12px;
+    }
+    #message { min-height: 24px; }
+    @media (max-width: 650px) {
+      .metrics { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <div class="eyebrow">Agentic commerce · Sandbox</div>
+      <h1>Pay-on-Proof</h1>
+      <p>Work first. Verify the evidence. Pay only for passing tasks.</p>
+    </div>
+    <div class="panel" style="margin:0">
+      <span class="muted">Backend</span>
+      <div id="health">Checking…</div>
+    </div>
+  </header>
+
+  <section class="metrics">
+    <div class="metric"><small>Captured</small><strong id="captured">$0.00</strong></div>
+    <div class="metric"><small>Uncertain captures</small><strong id="uncertain">$0.00</strong></div>
+    <div class="metric"><small>Authorization</small><strong id="authStatus">—</strong></div>
+  </section>
+
+  <section class="panel">
+    <h2>Payment session</h2>
+    <p>Create a new $50 sandbox order. Approve it in PayPal, then authorize it using the order ID.</p>
+    <button id="createOrder">1. Create order</button>
+    <label for="orderId">Order ID</label>
+    <input id="orderId" placeholder="Paste the order ID here">
+    <button id="authorize" class="secondary">2. Authorize order</button>
+
+    <hr style="border-color:#273250; margin:20px 0">
+
+    <label for="authorizationId">Authorization ID</label>
+    <input id="authorizationId" placeholder="Paste the authorization ID here">
+    <button id="runDemo">3. Run task demo</button>
+    <button id="refresh" class="secondary">Refresh status</button>
+    <button id="voidAuth" class="secondary">Void remaining authorization</button>
+    <p id="message" role="status"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Task verification</h2>
+    <p>Each payment decision is linked to a task's acceptance criteria and evidence.</p>
+    <div id="tasks" class="tasks">
+      <p class="muted">Run the demo or load a saved session to view task results.</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Audit response</h2>
+    <pre id="audit">No response loaded yet.</pre>
+  </section>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let busy = false;
+
+  function message(text) {
+    $("message").textContent = text;
+  }
+
+  function setBusy(value) {
+    busy = value;
+    document.querySelectorAll("button").forEach((button) => {
+      button.disabled = value;
+    });
+  }
+
+  async function api(path, options = {}) {
+    const response = await fetch(path, {
+      ...options,
+      headers: {
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...options.headers
+      }
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || `Request failed: HTTP ${response.status}`);
+    }
+    return data;
+  }
+
+  function showAudit(data) {
+    $("audit").textContent = JSON.stringify(data, null, 2);
+  }
+
+  function money(cents) {
+    return "$" + (Number(cents || 0) / 100).toFixed(2);
+  }
+
+  function renderTasks(tasks = []) {
+    const root = $("tasks");
+    root.replaceChildren();
+
+    if (!tasks.length) {
+      root.innerHTML = '<p class="muted">No task results recorded for this session.</p>';
+      return;
+    }
+
+    for (const task of tasks) {
+      const card = document.createElement("article");
+      card.className = "task";
+
+      const head = document.createElement("div");
+      head.className = "task-head";
+
+      const title = document.createElement("h3");
+      title.textContent = task.title || task.taskId || "Task";
+
+      const status = document.createElement("span");
+      status.className = "status " +
+        (task.verification === "PASS" ? "pass" :
+         task.verification === "FAIL" ? "fail" : "muted");
+      status.textContent = task.verification || "NOT RUN";
+
+      head.append(title, status);
+
+      const detail = document.createElement("p");
+      detail.textContent = task.reason || task.acceptance || "";
+
+      const amount = document.createElement("p");
+      amount.textContent =
+        `Task amount: $${Number(task.amount || 0).toFixed(2)} · Capture: ${task.captureStatus || "—"}`;
+
+      const evidenceLabel = document.createElement("p");
+      evidenceLabel.className = "muted";
+      evidenceLabel.textContent = "Evidence";
+
+      const evidence = document.createElement("pre");
+      evidence.textContent = JSON.stringify(task.evidence || {}, null, 2);
+
+      card.append(head, detail, amount, evidenceLabel, evidence);
+
+      if (task.captureId) {
+        const capture = document.createElement("p");
+        capture.innerHTML = "<span class='muted'>Capture ID: </span>";
+        const code = document.createElement("code");
+        code.textContent = task.captureId;
+        capture.append(code);
+        card.append(capture);
+      }
+
+      root.append(card);
+    }
+  }
+
+  async function refreshStatus() {
+    const id = $("authorizationId").value.trim();
+    if (!id) throw new Error("Enter an authorization ID first.");
+
+    const data = await api(
+      "/api/authorizations/" + encodeURIComponent(id)
+    );
+
+    $("authStatus").textContent = data.status || "Unknown";
+    if (data.captureTotals) {
+      $("captured").textContent = money(data.captureTotals.committedCents);
+      $("uncertain").textContent = money(data.captureTotals.uncertainCents);
+    }
+
+    showAudit(data);
+
+    const state = await api("/api/state");
+    const auth = state.authorizations?.[id];
+    if (auth?.tasks) renderTasks(auth.tasks);
+  }
+
+  async function action(fn) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await fn();
+    } catch (error) {
+      message(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  $("createOrder").addEventListener("click", () => action(async () => {
+    const data = await api("/api/orders", { method: "POST" });
+    $("orderId").value = data.orderId || "";
+    showAudit(data);
+
+    if (data.approvalUrl) {
+      message("Order created. Opening PayPal sandbox approval.");
+      window.open(data.approvalUrl, "_blank", "noopener,noreferrer");
+    } else {
+      message("Order created, but no approval URL was returned. Inspect the audit response.");
+    }
+  }));
+
+  $("authorize").addEventListener("click", () => action(async () => {
+    const orderId = $("orderId").value.trim();
+    if (!orderId) throw new Error("Enter an order ID first.");
+
+    const data = await api(
+      "/api/orders/" + encodeURIComponent(orderId) + "/authorize",
+      { method: "POST" }
+    );
+
+    if (data.authorizationId) {
+      $("authorizationId").value = data.authorizationId;
+    }
+    showAudit(data);
+    message("Authorization response received. Verify its status before running the demo.");
+  }));
+
+  $("runDemo").addEventListener("click", () => action(async () => {
+    const id = $("authorizationId").value.trim();
+    if (!id) throw new Error("Enter an authorization ID first.");
+
+    const data = await api(
+      "/api/authorizations/" + encodeURIComponent(id) + "/run-demo",
+      { method: "POST" }
+    );
+
+    renderTasks(data.tasks || []);
+    showAudit(data);
+    message(data.message || `Demo status: ${data.demoRunStatus || "unknown"}`);
+    await refreshStatus();
+  }));
+
+  $("refresh").addEventListener("click", () => action(async () => {
+    await refreshStatus();
+    message("Authorization status refreshed from the backend.");
+  }));
+
+  $("voidAuth").addEventListener("click", () => action(async () => {
+    const id = $("authorizationId").value.trim();
+    if (!id) throw new Error("Enter an authorization ID first.");
+
+    if (!confirm("Void the remaining authorization? Only do this after captures are reconciled.")) {
+      return;
+    }
+
+    const data = await api(
+      "/api/authorizations/" + encodeURIComponent(id) + "/void",
+      { method: "POST" }
+    );
+
+    showAudit(data);
+    message(`Authorization status: ${data.status || "check response"}`);
+    await refreshStatus();
+  }));
+
+  api("/").then((data) => {
+    $("health").textContent = data.status || "Connected";
+  }).catch(() => {
+    $("health").textContent = "Unavailable";
+  });
+</script>
+</body>
+</html>

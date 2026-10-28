@@ -1,0 +1,4 @@
+.env
+node_modules/
+.pay-on-proof-state.json
+.pay-on-proof-state.tmp
