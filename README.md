@@ -14,6 +14,9 @@ A PayPal sandbox prototype for evidence-gated agentic commerce: tasks are checke
 - Queries PayPal for the authoritative authorization status and verifies voiding of the unused authorization.
 - Serves a browser dashboard from `public/index.html`.
 - Provides a verification preview endpoint and dashboard button that run the verifier without contacting PayPal's payment endpoints. If AI is configured, the preview still makes a Groq API request and may incur usage cost.
+- Offers a PASS / REVIEW / FAIL simulator using synthetic evidence; scenarios are payment-free and explicitly labelled as simulations.
+- Generates downloadable Proof Receipts with evidence, criteria, verifier provenance, review decision, payment outcome, event history, and SHA-256 hashes.
+- Provides a human-review queue for recorded REVIEW tasks. Approval re-checks deterministic gates, PayPal authorization status, budget, and unresolved captures before attempting a sandbox capture; rejection makes no capture request.
 - Offers a PASS / REVIEW / FAIL simulator using synthetic evidence; all scenarios are payment-free and explicitly labelled as simulations.
 - Generates downloadable, hash-backed Proof Receipts with the evidence snapshot, acceptance criteria, verifier provenance, review decision, payment outcome, and event history.
 - Provides a human-review queue for actual REVIEW tasks. Approval re-checks deterministic gates, PayPal authorization status, budget, and unresolved captures before attempting a sandbox capture; rejection does not call PayPal.
@@ -56,6 +59,10 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 
 - `GET /api/health` — backend and verifier mode.
 - `POST /api/verification-preview` — verify the sample tasks without calling PayPal payment endpoints; may call Groq when configured.
+- `GET /api/scenarios` and `POST /api/scenarios/:scenarioId/simulate` — run payment-free `pass`, `review`, and `fail` simulations.
+- `POST /api/authorizations/:authorizationId/tasks/:taskId/review` — record a human decision on an unreviewed REVIEW task; APPROVE may attempt one sandbox capture after policy checks, REJECT never captures.
+- `GET /api/authorizations/:authorizationId/receipt/:taskId` — download a single task Proof Receipt.
+- `GET /api/authorizations/:authorizationId/receipts` — export all task Proof Receipts.
 - `GET /api/scenarios` and `POST /api/scenarios/:scenarioId/simulate` — list or run payment-free `pass`, `review`, and `fail` simulations.
 - `POST /api/authorizations/:authorizationId/tasks/:taskId/review` — record a reviewer decision on an actual unreviewed REVIEW task; APPROVE may attempt one sandbox capture after rechecking policy, REJECT never captures.
 - `GET /api/authorizations/:authorizationId/receipt/:taskId` — download a single task Proof Receipt.
