@@ -7,6 +7,9 @@ const {
   validateAiDecision,
   verifyWithOpenAI,
 } = require("../lib/verifier");
+const {
+  createVerificationPreview,
+} = require("../lib/verification-preview");
 
 test("report task fails its hard gate when summary is empty", () => {
   const result = verifyDeterministicTask({
@@ -165,6 +168,66 @@ test("successful but malformed OpenAI payload returns REVIEW", async () => {
   } finally {
     global.fetch = previousFetch;
   }
+});
+
+
+test("verification preview records decisions but never marks captures attempted", async () => {
+  const tasks = [
+    {
+      id: "a",
+      title: "Good task",
+      amount: "5.00",
+      acceptance: "Criterion",
+      evidence: { result: "proof" },
+    },
+    {
+      id: "b",
+      title: "Ambiguous task",
+      amount: "7.00",
+      acceptance: "Criterion",
+      evidence: {},
+    },
+  ];
+  let calls = 0;
+  const preview = await createVerificationPreview(
+    tasks,
+    async () => {
+      calls += 1;
+      return calls === 1
+        ? { decision: "PASS", source: "openai", model: "test-model", reason: "Clear result." }
+        : { decision: "REVIEW", source: "openai", model: "test-model", reason: "Ambiguous." };
+    },
+    { mode: "hybrid", now: () => "2026-01-01T00:00:00.000Z" }
+  );
+
+  assert.equal(calls, 2);
+  assert.equal(preview.paymentSideEffects, false);
+  assert.equal(preview.totals.captured, "0.00");
+  assert.equal(preview.totals.uncertain, "0.00");
+  assert.deepEqual(
+    preview.tasks.map((task) => task.verification),
+    ["PASS", "REVIEW"]
+  );
+  assert.ok(preview.tasks.every((task) => task.captureStatus === "NOT_ATTEMPTED"));
+  assert.ok(preview.tasks.every((task) => task.captureId === null));
+  assert.equal(preview.tasks[0].verificationSource, "openai");
+});
+
+test("verification preview fails closed if an evaluator throws or returns an invalid decision", async () => {
+  const tasks = [
+    { id: "a", title: "A", amount: "1.00", acceptance: "A", evidence: {} },
+    { id: "b", title: "B", amount: "1.00", acceptance: "B", evidence: {} },
+  ];
+  const preview = await createVerificationPreview(tasks, async (task) => {
+    if (task.id === "a") throw new Error("provider outage");
+    return { decision: "CAPTURE", reason: "invalid" };
+  });
+
+  assert.deepEqual(
+    preview.tasks.map((task) => task.verification),
+    ["REVIEW", "REVIEW"]
+  );
+  assert.ok(preview.tasks.every((task) => task.captureStatus === "NOT_ATTEMPTED"));
 });
 
 test("OpenAI response errors reject so the caller can route to review", async () => {

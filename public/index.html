@@ -93,6 +93,7 @@
 
     <label for="authorizationId">Authorization ID</label>
     <input id="authorizationId" placeholder="Paste the authorization ID here">
+    <button id="previewVerifier" class="secondary">Preview verification (no payment)</button>
     <button id="runDemo">3. Run task demo</button>
     <button id="refresh" class="secondary">Refresh status</button>
     <button id="voidAuth" class="secondary">Void remaining authorization</button>
@@ -275,6 +276,13 @@
     }
     showAudit(data);
     message("Authorization response received. Verify its status before running the demo.");
+  }));
+
+  $("previewVerifier").addEventListener("click", () => action(async () => {
+    const data = await api("/api/verification-preview", { method: "POST" });
+    renderTasks(data.tasks || []);
+    showAudit(data);
+    message(data.message || "Verification preview completed; no payment request was made.");
   }));
 
   $("runDemo").addEventListener("click", () => action(async () => {

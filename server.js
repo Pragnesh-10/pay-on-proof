@@ -6,6 +6,7 @@ const {
   verifyDeterministicTask,
   verifyWithOpenAI,
 } = require("./lib/verifier");
+const { createVerificationPreview } = require("./lib/verification-preview");
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -498,6 +499,22 @@ async function evaluateDemoTask(task) {
     };
   }
 }
+
+// Preview task verification without querying or mutating PayPal resources.
+app.post("/api/verification-preview", async (_req, res) => {
+  try {
+    const preview = await createVerificationPreview(
+      DEMO_TASKS,
+      evaluateDemoTask,
+      {
+        mode: process.env.OPENAI_API_KEY ? "hybrid" : "deterministic",
+      }
+    );
+    res.json(preview);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
 
 // Run the controlled demo against a fresh authorization.
 // Passing tasks are captured; failed tasks capture nothing.

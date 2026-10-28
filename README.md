@@ -13,6 +13,7 @@ A PayPal sandbox prototype for evidence-gated agentic commerce: tasks are checke
 - Blocks repeated demo runs for an authorization.
 - Queries PayPal for the authoritative authorization status and verifies voiding of the unused authorization.
 - Serves a browser dashboard from `public/index.html`.
+- Provides a verification preview endpoint and dashboard button that run the verifier without contacting PayPal's payment endpoints. If AI is configured, the preview still makes an OpenAI API request and may incur usage cost.
 
 The controlled demo's intended results are Task A $15 PASS, Task B $20 PASS, Task C $10 FAIL: $35 captured, with the remaining $15 authorization voided. The $15 is an unused authorization amount, **not a refund**.
 
@@ -36,7 +37,8 @@ The controlled demo's intended results are Task A $15 PASS, Task B $20 PASS, Tas
    ```
 
 5. Open [http://localhost:3000](http://localhost:3000).
-6. Create an order, approve it using a sandbox Personal buyer, authorize it, and run the demo on the new authorization.
+6. First click **Preview verification (no payment)**. This exercises the verifier but never creates or changes a PayPal transaction. With `OPENAI_API_KEY` configured, this does call OpenAI and may incur API usage cost.
+7. For a full payment demo, create an order, approve it using a sandbox Personal buyer, authorize it, then run the demo on the new authorization. Never reuse a completed or voided authorization.
 
 ## Verification and payment policy
 
@@ -49,6 +51,7 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 ## API overview
 
 - `GET /api/health` — backend and verifier mode.
+- `POST /api/verification-preview` — verify the sample tasks without calling PayPal payment endpoints; may call OpenAI when configured.
 - `POST /api/orders` — create a $50 sandbox order.
 - `POST /api/orders/:orderId/authorize` — authorize an approved order created by this server.
 - `GET /api/authorizations/:authorizationId` — query PayPal status and local capture totals.
