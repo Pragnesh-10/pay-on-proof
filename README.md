@@ -13,7 +13,7 @@ A PayPal sandbox prototype for evidence-gated agentic commerce: tasks are checke
 - Blocks repeated demo runs for an authorization.
 - Queries PayPal for the authoritative authorization status and verifies voiding of the unused authorization.
 - Serves a browser dashboard from `public/index.html`.
-- Provides a verification preview endpoint and dashboard button that run the verifier without contacting PayPal's payment endpoints. If AI is configured, the preview still makes an OpenAI API request and may incur usage cost.
+- Provides a verification preview endpoint and dashboard button that run the verifier without contacting PayPal's payment endpoints. If AI is configured, the preview still makes an Groq API request and may incur usage cost.
 
 The controlled demo's intended results are Task A $15 PASS, Task B $20 PASS, Task C $10 FAIL: $35 captured, with the remaining $15 authorization voided. The $15 is an unused authorization amount, **not a refund**.
 
@@ -21,13 +21,13 @@ The controlled demo's intended results are Task A $15 PASS, Task B $20 PASS, Tas
 
 - Node.js with built-in `fetch` support.
 - PayPal Developer sandbox REST app credentials.
-- Optional OpenAI API key for semantic verification of the report summary.
+- Optional Groq API key for semantic verification of the report summary.
 
 ## Run locally
 
 1. Copy `.env.example` to `.env`.
 2. Add your PayPal sandbox REST client ID and secret to `.env`. Never commit `.env`.
-3. To enable semantic verification, set `OPENAI_API_KEY` in `.env`. `OPENAI_MODEL` defaults to `gpt-4.1-mini`. Without the key, the controlled demo uses deterministic checks only.
+3. To enable semantic verification, set `GROQ_API_KEY` in `.env`. `GROQ_MODEL` defaults to `openai/gpt-oss-20b`. Without the key, the controlled demo uses deterministic checks only.
 4. Install and start:
 
    ```bash
@@ -37,12 +37,12 @@ The controlled demo's intended results are Task A $15 PASS, Task B $20 PASS, Tas
    ```
 
 5. Open [http://localhost:3000](http://localhost:3000).
-6. First click **Preview verification (no payment)**. This exercises the verifier but never creates or changes a PayPal transaction. With `OPENAI_API_KEY` configured, this does call OpenAI and may incur API usage cost.
+6. First click **Preview verification (no payment)**. This exercises the verifier but never creates or changes a PayPal transaction. With `GROQ_API_KEY` configured, this does call Groq and may incur API usage cost.
 7. For a full payment demo, create an order, approve it using a sandbox Personal buyer, authorize it, then run the demo on the new authorization. Never reuse a completed or voided authorization.
 
 ## Verification and payment policy
 
-The deterministic verifier is a hard gate for required fields and explicit checks. When `OPENAI_API_KEY` is configured, Task A's natural-language summary also receives an OpenAI Responses API semantic review using a strict JSON schema.
+The deterministic verifier is a hard gate for required fields and explicit checks. When `GROQ_API_KEY` is configured, Task A's natural-language summary also receives an Groq Chat Completions API semantic review using a strict JSON schema.
 
 The AI model has no payment tools and cannot call PayPal. The backend validates the AI response. If the AI says FAIL or REVIEW, returns malformed output, times out, or is unavailable, the task is not captured. A completed AI PASS may satisfy the semantic check only after the deterministic task checks already passed. Tasks B and C retain their deterministic checks.
 
@@ -51,7 +51,7 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 ## API overview
 
 - `GET /api/health` — backend and verifier mode.
-- `POST /api/verification-preview` — verify the sample tasks without calling PayPal payment endpoints; may call OpenAI when configured.
+- `POST /api/verification-preview` — verify the sample tasks without calling PayPal payment endpoints; may call Groq when configured.
 - `POST /api/orders` — create a $50 sandbox order.
 - `POST /api/orders/:orderId/authorize` — authorize an approved order created by this server.
 - `GET /api/authorizations/:authorizationId` — query PayPal status and local capture totals.
@@ -71,7 +71,7 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 
 ## References
 
-- [OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create)
-- [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
+- [Groq Chat Completions API](https://developers.openai.com/api/reference/resources/responses/methods/create)
+- [Groq Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
 - [PayPal Orders API](https://developer.paypal.com/docs/api/orders/v2/)
 - [PayPal Payments API](https://developer.paypal.com/docs/api/payments/v2/)
