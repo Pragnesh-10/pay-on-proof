@@ -705,6 +705,13 @@
         actions.className = "task-actions";
         const approve = document.createElement("button");
         approve.textContent = "Approve & capture";
+        const canApprove = task.verificationSource !== "deterministic-artifact";
+        if (!canApprove) {
+          const hint = document.createElement("p");
+          hint.className = "muted";
+          hint.textContent = "This artifact could not be parsed confidently. Correct the file and re-verify it; malformed artifacts cannot be approved for capture.";
+          card.append(hint);
+        }
         const reject = document.createElement("button");
         reject.textContent = "Reject — no capture";
         reject.className = "secondary";
@@ -741,9 +748,12 @@
             await refreshStatus();
           });
         };
-        approve.addEventListener("click", () => submitReview("APPROVE"));
+        if (canApprove) {
+          approve.addEventListener("click", () => submitReview("APPROVE"));
+          actions.append(approve);
+        }
         reject.addEventListener("click", () => submitReview("REJECT"));
-        actions.append(approve, reject);
+        actions.append(reject);
         card.append(form, actions);
       } else if (task.review) {
         const notes = document.createElement("p");
