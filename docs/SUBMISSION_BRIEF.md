@@ -61,6 +61,14 @@ See [Architecture](ARCHITECTURE.md) for the sequence and trust boundaries.
 - Automated tests and a GitHub Actions test workflow.
 - A live Groq smoke-test command that does not call PayPal payment endpoints.
 
+## User-supplied artifact workflow
+
+A user can upload a bounded JSON or CSV artifact and define structural acceptance rules: required fields, one optional unique field, optional numeric fields, and a minimum record count. The server records the raw artifact digest and a three-row preview, and returns explicit per-rule results. Malformed artifacts route to REVIEW. A preview receipt is labelled simulation-only and has no payment side effects.
+
+A verified artifact can be attached to a selected local PayPal sandbox authorization at a stated task amount. Saving is separate from capturing. The capture endpoint requires the stored artifact task to have PASS, checks live authorization status, available budget, unresolved attempts, and duplicate task captures, persists a stable request ID before the provider call, and returns the task receipt. FAIL and REVIEW cannot be captured through this route.
+
+The receipt verifier recomputes the evidence, acceptance-criteria, and receipt hashes. When the original artifact bytes are supplied, it checks their raw SHA-256 digest too. This detects tampering; it does not prove claims in the artifact are factually true or establish an authenticated issuer.
+
 ## Evidence and honest limits
 
 **Observed during development:** the live Groq smoke test returned `PASS` for the synthetic sentence “Revenue increased by 8% compared with the previous quarter,” with model `openai/gpt-oss-20b` and reported latency of 771 ms. That result demonstrates connectivity and decision parsing for that request only; it is not a model-accuracy benchmark.
