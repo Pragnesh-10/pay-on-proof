@@ -425,7 +425,7 @@ const DEMO_TASKS = [
     acceptance: "Report contains a title and a meaningful summary of the result.",
     evidence: {
       title: "Quarterly Analysis",
-      summary: "Revenue increased in the sample dataset.",
+      summary: "Revenue increased by 8% compared with the previous quarter.",
     },
     shouldPass: true,
   },
