@@ -70,16 +70,19 @@ test("artifact input rejects unsupported formats, unsafe filenames, invalid crit
     criteria: { requiredFields: "id" },
   }), /must be an array/);
   assert.throws(() => verifyArtifact({
+    fileName: "a.json", format: "json", content: '{"id":"A"}', criteria: { minRows: 1 },
+  }), /at least one field criterion/);
+  assert.throws(() => verifyArtifact({
     fileName: "large.json", format: "json", content: "x".repeat(20 * 1024 + 1),
   }), /20 KB upload limit/);
 });
 
 test("CSV duplicate headers and mismatched rows route to REVIEW", () => {
   const duplicateHeaders = verifyArtifact({
-    fileName: "duplicate.csv", format: "csv", content: "id,ID\nA1,A2",
+    fileName: "duplicate.csv", format: "csv", content: "id,ID\nA1,A2", criteria: { requiredFields: ["id"] },
   });
   const badRow = verifyArtifact({
-    fileName: "bad-row.csv", format: "csv", content: "id,value\nA1,1,extra",
+    fileName: "bad-row.csv", format: "csv", content: "id,value\nA1,1,extra", criteria: { requiredFields: ["id"] },
   });
   assert.equal(duplicateHeaders.decision, "REVIEW");
   assert.equal(badRow.decision, "REVIEW");
