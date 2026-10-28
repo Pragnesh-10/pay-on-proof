@@ -26,6 +26,8 @@ const {
   PORT = 3000,
 } = process.env;
 
+const LOCAL_BASE_URL = `http://127.0.0.1:${PORT}`;
+
 if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
   throw new Error("Missing PayPal REST credentials in .env");
 }
@@ -212,8 +214,8 @@ app.post("/api/orders", async (_req, res) => {
       body: {
         intent: "AUTHORIZE",
         application_context: {
-          return_url: "http://localhost:3000/checkout/return",
-          cancel_url: "http://localhost:3000/checkout/cancel",
+          return_url: `${LOCAL_BASE_URL}/checkout/return`,
+          cancel_url: `${LOCAL_BASE_URL}/checkout/cancel`,
         },
         purchase_units: [
           {
