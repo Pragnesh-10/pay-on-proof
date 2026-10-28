@@ -30,6 +30,16 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The default server binding 
 4. Explain that this preview can call Groq, but does not call PayPal payment endpoints. Do not confuse a Groq API call with a payment.
 5. Confirm Task C is blocked because its conclusion is missing. If Task A returns REVIEW, explain that this is the intentional fail-closed path.
 
+## New product flows: simulator, review, and receipts
+
+1. Choose **Simulate PASS**, **Simulate REVIEW**, and **Simulate FAIL**. Each scenario uses synthetic evidence and reports the hypothetical payment policy. It explicitly identifies itself as simulation-only; no PayPal endpoint is called and the actual captured amount remains $0.
+2. Download the simulation Proof Receipt. Point out the evidence hash, acceptance-criteria hash, and receipt hash. Hashes detect changes to recorded data; they are not a truth guarantee.
+3. For an actual authorization run, refresh status and inspect the **Human review queue**. An actual REVIEW task appears there only after it has been recorded for the authorization.
+4. For ambiguous evidence, enter reviewer name and notes. **Reject — no capture** records the decision without a PayPal capture request. **Approve & capture** requires confirmation and may send a real PayPal sandbox capture. It is only allowed for a recorded REVIEW task whose deterministic hard gates pass and whose authorization is currently capturable.
+5. Download the Proof Receipt for a reviewed task or use **Download all receipts**. The receipt preserves the original verifier decision separately from the human decision and records payment status and event history.
+
+The reviewer identity is not authenticated in this prototype. Do not expose the review endpoint publicly or use it for real funds.
+
 ## Full sandbox payment demo
 
 Only continue after the preview is behaving correctly.
@@ -84,4 +94,7 @@ The AI model can return REVIEW for Task A, in which case the system must not cap
 - [ ] No live credentials, buyer personal details, or real payment data appear in screenshots.
 - [ ] Full payment demo uses a new authorization, never an old completed/voided one.
 - [ ] Captures reconciled before void.
+- [ ] PASS / REVIEW / FAIL simulator explicitly shows zero payment side effects.
+- [ ] Any human approval was intentional, reviewed, and sandbox-only; uncertain outcomes were reconciled.
+- [ ] Proof Receipts have accurate capture IDs/status; simulation receipts are not presented as real transactions.
 - [ ] README, submission brief, architecture, and this demo sequence match the code that will be judged.
