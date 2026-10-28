@@ -27,6 +27,7 @@ A PayPal sandbox prototype for **AI Agent Automation**: verify task evidence aga
 - Provides a human-review queue for recorded REVIEW tasks. Approval re-checks deterministic gates, PayPal authorization status, budget, and unresolved captures before attempting a sandbox capture; rejection makes no capture request.
 - Verifies user-supplied JSON and CSV artifacts (20 KB, 500 records, and 100 columns maximum) against explicit required-field, uniqueness, numeric-field, and minimum-row criteria. Unparseable artifacts route to REVIEW.
 - Saves verified artifacts as task records on a selected sandbox authorization and allows a separate explicit capture action only for a recorded PASS artifact task.
+- Adds a confirmed, bounded artifact agent workflow that chains verify → save → capture for a newly recorded PASS. REVIEW and FAIL stop before capture; reused task records are never auto-captured again, and uncertain outcomes are routed toward reconciliation.
 - Recomputes Proof Receipt integrity hashes, with an optional comparison against the original artifact bytes.
 - Includes an optional labelled synthetic Groq evaluation script that reports false-pass, false-fail, review, exact-match, provider-error, and latency metrics. The small authored fixture set is not a validated benchmark.
 
@@ -56,6 +57,7 @@ The controlled demo's intended results are Task A $15 PASS, Task B $20 PASS, Tas
 7. Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
 8. First click **Preview verification (no payment)**. This exercises the verifier but never creates or changes a PayPal transaction. With `GROQ_API_KEY` configured, this does call Groq and may incur API usage cost.
 9. For a full payment demo, create an order, approve it using a sandbox Personal buyer, authorize it, then run the demo on the new authorization. Never reuse a completed or voided authorization.
+10. To demonstrate artifact automation, choose a synthetic JSON/CSV file, enter explicit criteria and an amount, select the authorized sandbox session, and start **Run agent workflow**. Confirm the sandbox action; a newly recorded PASS triggers one capture, while REVIEW/FAIL does not.
 
 ## Verification and payment policy
 
@@ -70,7 +72,7 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 - `GET /api/health` — backend and verifier mode.
 - `POST /api/verification-preview` — verify sample tasks without calling PayPal payment endpoints; may call Groq when configured.
 - `POST /api/artifacts/verify` — verify a JSON/CSV artifact against explicit structural criteria and return a simulation-only Proof Receipt. It does not call payment endpoints.
-- `POST /api/authorizations/:authorizationId/artifact-tasks` — attach an artifact verification to a recorded sandbox authorization without capturing money.
+- `POST /api/authorizations/:authorizationId/artifact-tasks` — attach an artifact verification to a recorded sandbox authorization without capturing money. The dashboard's confirmed agent workflow chains this save with the next endpoint only for a newly recorded PASS.
 - `POST /api/authorizations/:authorizationId/artifact-tasks/:taskId/capture` — capture only a recorded PASS artifact task after live status, budget, unresolved-capture, and duplicate-attempt checks.
 - `POST /api/receipts/verify` — independently check receipt hashes and optionally compare supplied original artifact bytes.
 - `GET /api/scenarios` and `POST /api/scenarios/:scenarioId/simulate` — run payment-free `pass`, `review`, and `fail` simulations.
