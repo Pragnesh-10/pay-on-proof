@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "test:groq": "node scripts/groq-smoke.js"
+    "test:groq": "node scripts/groq-smoke.js",
+    "evaluate:groq": "node scripts/evaluate-groq.js"
   },
   "keywords": [],
   "type": "commonjs",
