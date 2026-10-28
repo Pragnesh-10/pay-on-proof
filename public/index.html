@@ -367,7 +367,7 @@
       <div class="section-head">
         <div>
           <h2>Real artifact verification</h2>
-          <p>Inspect a JSON or CSV file against explicit structural rules. Previewing is payment-free; attaching a passing task to an authorization and capturing it are separate actions.</p>
+          <p>Inspect a JSON or CSV artifact against explicit structural rules. Preview is payment-free. For a bounded agent workflow, start one confirmed run to verify, save the task, and request a single sandbox capture only for a newly recorded PASS; REVIEW and FAIL never trigger capture.</p>
         </div>
         <span class="pill">MAX 20 KB</span>
       </div>
@@ -398,9 +398,13 @@
         </div>
       </div>
       <div class="button-row">
-        <button id="verifyArtifact">Verify artifact (no payment)</button>
+        <button id="processArtifactWorkflow">Run agent workflow · capture only on PASS</button>
+      </div>
+      <div class="button-row">
+        <button id="verifyArtifact" class="secondary">Verify artifact (no payment)</button>
         <button id="saveArtifactTask" class="secondary">Save to selected authorization</button>
       </div>
+      <p class="muted">The agent workflow requires confirmation before it starts. It never retries a previously recorded task automatically; inspect the task and use the separate capture control only when appropriate.</p>
       <div class="notice">
         <span class="notice-icon" aria-hidden="true">ⓘ</span>
         <span>Structural PASS means only that the configured rules passed. It does not prove business correctness or factual truth. Artifact task records keep the file digest and up to three preview rows, not the full uploaded content.</span>
@@ -1081,6 +1085,87 @@
       message("Artifact failed its configured checks. It was saved, but cannot be captured.", "error");
     } else {
       message("Artifact task saved. Capture is a separate confirmed action.", "success");
+    }
+  }));
+
+  $("processArtifactWorkflow").addEventListener("click", () => action(async () => {
+    const authorizationId = $("authorizationId").value.trim();
+    if (!authorizationId) throw new Error("Select an authorization ID in the Payment session first.");
+    const payload = await readArtifactForm();
+    if (!/^(?:0|[1-9]\\d{0,2})\\.\\d{2}$/.test(payload.amount) || Number(payload.amount) <= 0) {
+      throw new Error("Enter a positive task amount, such as 15.00, before running the agent workflow.");
+    }
+    if (!confirm(
+      "Run the bounded agent workflow for sandbox authorization " + authorizationId + "?\\n\\n" +
+      "Artifact: " + payload.fileName + "\\nTask amount: $" + payload.amount + "\\n\\n" +
+      "The backend will check the configured structural criteria and save the result. " +
+      "A newly recorded PASS task will trigger one PayPal sandbox capture for $" + payload.amount +
+      ". REVIEW and FAIL are saved without capture. Previously recorded tasks are never auto-captured again. " +
+      "This sandbox payment action cannot be undone from the dashboard. Continue?"
+    )) return;
+
+    latestArtifactContent = payload.content;
+    const saved = await api(
+      "/api/authorizations/" + encodeURIComponent(authorizationId) + "/artifact-tasks",
+      { method: "POST", body: JSON.stringify(payload) }
+    );
+    activeAuthorizationId = authorizationId;
+    let result = saved;
+
+    if (saved.task?.verification === "PASS" &&
+        !saved.reused &&
+        saved.task?.captureStatus === "NOT_ATTEMPTED") {
+      message("PASS recorded. Requesting the single confirmed sandbox capture…", "success");
+      try {
+        result = await api(
+          "/api/authorizations/" + encodeURIComponent(authorizationId) +
+          "/artifact-tasks/" + encodeURIComponent(saved.task.taskId) + "/capture",
+          { method: "POST" }
+        );
+      } catch (error) {
+        await refreshStatus().catch(() => {});
+        renderArtifactResult(saved, { authorizationId });
+        showAudit({
+          workflow: "ARTIFACT_AGENT_WORKFLOW",
+          stage: "CAPTURE_RESPONSE_ERROR",
+          authorizationId,
+          taskId: saved.task.taskId,
+          savedTask: saved.task,
+          error: error.message,
+          nextStep: "Refresh status and reconcile if capture outcome is uncertain. Do not rerun this workflow blindly."
+        });
+        message("The task was saved, but the capture response could not be confirmed. Do not rerun blindly; refresh status and reconcile any uncertain capture.", "error");
+        return;
+      }
+    }
+
+    renderArtifactResult(result, { authorizationId });
+    showAudit({
+      workflow: "ARTIFACT_AGENT_WORKFLOW",
+      stage: result.paymentOutcome || (result.task?.verification === "PASS" ? "PASS_SAVED_NO_AUTO_CAPTURE" : "DECISION_RECORDED_NO_CAPTURE"),
+      authorizationId,
+      reused: Boolean(saved.reused),
+      verification: result.task?.verification || saved.task?.verification,
+      paymentOutcome: result.paymentOutcome || "NOT_ATTEMPTED",
+      response: result
+    });
+    await refreshStatus();
+    renderArtifactResult(result, { authorizationId });
+
+    if (saved.reused) {
+      message("This artifact task was already recorded. No automatic capture was attempted; inspect the existing task before any separate capture action.", "error");
+    } else if (result.paymentOutcome === "CAPTURE_COMPLETED") {
+      message("Agent workflow complete: acceptance criteria passed and the sandbox capture completed. Download the Proof Receipt for the audit trail.", "success");
+    } else if (result.paymentOutcome === "OUTCOME_UNCERTAIN" || result.task?.captureStatus === "UNKNOWN" || result.task?.captureStatus === "IN_PROGRESS") {
+      message("Capture outcome is uncertain. The amount remains reserved; reconcile the existing attempt before any further payment action.", "error");
+    } else if (saved.task?.verification === "REVIEW") {
+      message("Agent workflow recorded REVIEW. No capture was attempted; send the task to human review.", "error");
+    } else if (saved.task?.verification === "FAIL") {
+      message("Agent workflow recorded FAIL. No capture was attempted.", "error");
+    } else if (result.task?.verification === "PASS" && result.paymentOutcome !== "CAPTURE_COMPLETED") {
+      message(result.message || "PASS was recorded, but no completed capture was confirmed. Inspect the task status before acting.", "error");
+    } else {
+      message(result.message || "Agent workflow recorded the decision without capture.", "success");
     }
   }));
 
