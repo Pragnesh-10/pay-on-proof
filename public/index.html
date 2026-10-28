@@ -35,6 +35,7 @@
     .status { font-size: 12px; font-weight: 700; letter-spacing: .04em; }
     .pass { color: #70e2b0; }
     .fail { color: #ff9a9a; }
+    .review { color: #ffd27a; }
     .muted { color: #aab6d4; }
     code { overflow-wrap: anywhere; color: #c5d1ff; }
     input {
@@ -173,7 +174,8 @@
       const status = document.createElement("span");
       status.className = "status " +
         (task.verification === "PASS" ? "pass" :
-         task.verification === "FAIL" ? "fail" : "muted");
+         task.verification === "FAIL" ? "fail" :
+         task.verification === "REVIEW" ? "review" : "muted");
       status.textContent = task.verification || "NOT RUN";
 
       head.append(title, status);
@@ -185,6 +187,12 @@
       amount.textContent =
         `Task amount: $${Number(task.amount || 0).toFixed(2)} · Capture: ${task.captureStatus || "—"}`;
 
+      const provenance = document.createElement("p");
+      provenance.className = "muted";
+      provenance.textContent =
+        "Decision source: " + (task.verificationSource || "deterministic") +
+        (task.verificationModel ? " · Model: " + task.verificationModel : "");
+
       const evidenceLabel = document.createElement("p");
       evidenceLabel.className = "muted";
       evidenceLabel.textContent = "Evidence";
@@ -192,7 +200,7 @@
       const evidence = document.createElement("pre");
       evidence.textContent = JSON.stringify(task.evidence || {}, null, 2);
 
-      card.append(head, detail, amount, evidenceLabel, evidence);
+      card.append(head, detail, amount, provenance, evidenceLabel, evidence);
 
       if (task.captureId) {
         const capture = document.createElement("p");
@@ -221,11 +229,11 @@
       $("uncertain").textContent = money(data.captureTotals.uncertainCents);
     }
 
-    showAudit(data);
-
     const state = await api("/api/state");
     const auth = state.authorizations?.[id];
-    if (auth?.tasks) renderTasks(auth.tasks);
+    const tasks = Array.isArray(auth?.tasks) ? auth.tasks : [];
+    renderTasks(tasks);
+    showAudit({ authorization: data, savedTaskResults: tasks });
   }
 
   async function action(fn) {
@@ -307,8 +315,13 @@
     await refreshStatus();
   }));
 
-  api("/").then((data) => {
-    $("health").textContent = data.status || "Connected";
+  api("/api/health").then((data) => {
+    const mode = data.verifierMode === "hybrid"
+      ? "AI-assisted"
+      : "deterministic fallback";
+    $("health").textContent =
+      (data.status === "running" ? "Connected" : "Unavailable") +
+      " · " + mode;
   }).catch(() => {
     $("health").textContent = "Unavailable";
   });

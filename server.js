@@ -2,6 +2,10 @@
 require("dotenv").config();
 
 const express = require("express");
+const {
+  verifyDeterministicTask,
+  verifyWithOpenAI,
+} = require("./lib/verifier");
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -171,8 +175,22 @@ function captureTotals(authRecord) {
   return { committedCents, uncertainCents };
 }
 
-// Health check.
-app.get("/", (_req, res) => {
+// API health and verifier mode. Never return secret configuration.
+app.get("/api/health", (_req, res) => {
+  const aiConfigured = Boolean(process.env.OPENAI_API_KEY);
+  res.json({
+    name: "Pay-on-Proof",
+    environment: "sandbox",
+    status: "running",
+    verifierMode: aiConfigured ? "hybrid" : "deterministic",
+    aiModel: aiConfigured
+      ? process.env.OPENAI_MODEL || "gpt-4.1-mini"
+      : null,
+  });
+});
+
+// Kept for command-line health checks; the static dashboard is served at /.
+app.get("/api", (_req, res) => {
   res.json({
     name: "Pay-on-Proof",
     environment: "sandbox",
@@ -399,7 +417,7 @@ const DEMO_TASKS = [
     id: "task-a",
     title: "Generate a report",
     amount: "15.00",
-    acceptance: "Report contains a title and summary.",
+    acceptance: "Report contains a title and a meaningful summary of the result.",
     evidence: {
       title: "Quarterly Analysis",
       summary: "Revenue increased in the sample dataset.",
@@ -433,59 +451,52 @@ const DEMO_TASKS = [
   },
 ];
 
-function verifyDemoTask(task) {
-  if (task.id === "task-a") {
-    const passed =
-      typeof task.evidence.title === "string" &&
-      task.evidence.title.trim().length > 0 &&
-      typeof task.evidence.summary === "string" &&
-      task.evidence.summary.trim().length > 0;
+async function evaluateDemoTask(task) {
+  // Deterministic checks are mandatory and run before any AI request.
+  const deterministic = verifyDeterministicTask(task);
+  if (deterministic.decision !== "PASS") {
+    return deterministic;
+  }
 
+  // Task B/C have explicit machine-checkable acceptance tests.
+  // Task A also needs semantic assessment when an API key is configured.
+  if (task.id !== "task-a") {
+    return deterministic;
+  }
+
+  if (!process.env.OPENAI_API_KEY) {
     return {
-      passed,
-      reason: passed
-        ? "Required report fields are present."
-        : "Report title or summary is missing.",
+      ...deterministic,
+      reason:
+        deterministic.reason +
+        " AI is not configured; deterministic mode was used.",
     };
   }
 
-  if (task.id === "task-b") {
-    const checks = task.evidence.checks;
-
-    const passed =
-      Array.isArray(checks) &&
-      checks.length === 3 &&
-      checks.every(
-        (check) =>
-          typeof check.name === "string" &&
-          check.passed === true
-      );
+  try {
+    const semantic = await verifyWithOpenAI(task);
+    if (semantic.decision !== "PASS") {
+      return semantic;
+    }
 
     return {
-      passed,
-      reason: passed
-        ? "All three required checks passed."
-        : "One or more required checks failed or are missing.",
+      ...semantic,
+      reason:
+        semantic.reason +
+        " Required report fields also passed deterministic checks.",
     };
-  }
-
-  if (task.id === "task-c") {
-    const passed =
-      typeof task.evidence.conclusion === "string" &&
-      task.evidence.conclusion.trim().length > 0;
-
+  } catch (error) {
+    // Fail closed: AI outages must never silently become a PASS.
+    console.error("Semantic verifier unavailable:", error.message);
     return {
-      passed,
-      reason: passed
-        ? "A conclusion was found."
-        : "Required conclusion is missing.",
+      decision: "REVIEW",
+      passed: false,
+      reason:
+        "AI verification is unavailable; human review is required and no capture will be made.",
+      source: "openai",
+      model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
     };
   }
-
-  return {
-    passed: false,
-    reason: "Unknown task.",
-  };
 }
 
 // Run the controlled demo against a fresh authorization.
@@ -573,7 +584,7 @@ app.post(
         const results = [];
 
         for (const task of DEMO_TASKS) {
-          const verification = verifyDemoTask(task);
+          const verification = await evaluateDemoTask(task);
 
           const taskRecord = {
             taskId: task.id,
@@ -581,7 +592,9 @@ app.post(
             amount: task.amount,
             acceptance: task.acceptance,
             evidence: task.evidence,
-            verification: verification.passed ? "PASS" : "FAIL",
+            verification: verification.decision,
+            verificationSource: verification.source,
+            verificationModel: verification.model || null,
             reason: verification.reason,
             captureId: null,
             captureStatus: "NOT_ATTEMPTED",
@@ -591,7 +604,7 @@ app.post(
           auth.tasks.push(taskRecord);
           saveState();
 
-          if (!verification.passed) {
+          if (verification.decision !== "PASS") {
             results.push(taskRecord);
             continue;
           }
@@ -706,7 +719,12 @@ app.post(
           }
         }
 
-        auth.demoRunStatus = "COMPLETED";
+        const needsReview = results.some(
+          (taskResult) => taskResult.verification === "REVIEW"
+        );
+        auth.demoRunStatus = needsReview
+          ? "COMPLETED_WITH_REVIEW"
+          : "COMPLETED";
         auth.updatedAt = new Date().toISOString();
         saveState();
 

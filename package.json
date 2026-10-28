@@ -1,10 +1,11 @@
 {
   "name": "pay-on-proof",
   "version": "1.0.0",
-  "description": "",
+  "description": "PayPal sandbox prototype for evidence-gated agentic commerce",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js",
+    "test": "node --test"
   },
   "keywords": [],
   "type": "commonjs",
