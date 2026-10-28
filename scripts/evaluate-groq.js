@@ -7,20 +7,22 @@ const { verifyWithGroq } = require("../lib/verifier");
 const cases = require("../test/fixtures/semantic-evaluation-cases.json");
 
 function calculateMetrics(results) {
-  const expectedPass = results.filter((row) => row.expected === "PASS");
-  const expectedNotPass = results.filter((row) => row.expected !== "PASS");
+  // Provider failures are reported separately, not counted as model decisions.
+  const decided = results.filter((row) => !row.error);
+  const expectedPass = decided.filter((row) => row.expected === "PASS");
+  const expectedNotPass = decided.filter((row) => row.expected !== "PASS");
   const falsePasses = expectedNotPass.filter((row) => row.actual === "PASS").length;
   const falseFails = expectedPass.filter((row) => row.actual === "FAIL").length;
-  const completed = results.filter((row) => !row.error);
-  const averageLatencyMs = completed.length
-    ? Math.round(completed.reduce((sum, row) => sum + row.latencyMs, 0) / completed.length)
+  const averageLatencyMs = decided.length
+    ? Math.round(decided.reduce((sum, row) => sum + row.latencyMs, 0) / decided.length)
     : 0;
   return {
     cases: results.length,
-    exactMatchRate: results.filter((row) => row.actual === row.expected).length / Math.max(results.length, 1),
+    evaluatedCases: decided.length,
+    exactMatchRate: decided.filter((row) => row.actual === row.expected).length / Math.max(decided.length, 1),
     falsePassRateAmongExpectedNonPass: expectedNotPass.length ? falsePasses / expectedNotPass.length : 0,
     falseFailRateAmongExpectedPass: expectedPass.length ? falseFails / expectedPass.length : 0,
-    reviewRate: results.filter((row) => row.actual === "REVIEW").length / Math.max(results.length, 1),
+    reviewRate: decided.filter((row) => row.actual === "REVIEW").length / Math.max(decided.length, 1),
     providerErrorCount: results.filter((row) => row.error).length,
     averageLatencyMs,
   };
