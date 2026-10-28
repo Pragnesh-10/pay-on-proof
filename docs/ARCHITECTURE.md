@@ -11,7 +11,9 @@ flowchart LR
   GATE -. Task A semantic review only .-> GROQ[Groq Chat Completions]
   API --> PAYPAL[PayPal sandbox]
   API --> SIM[Scenario simulator]
-  API --> RECEIPT[Proof Receipt + SHA-256]
+  API --> ARTIFACT[JSON / CSV artifact verifier]
+  ARTIFACT --> GATE
+  API --> RECEIPT[Proof Receipt + SHA-256 + verifier]
   UI --> REVIEW[Human review queue]
   REVIEW --> API
   API <--> STATE[(Local JSON state)]
@@ -31,7 +33,10 @@ flowchart LR
 8. **Human review:** a recorded REVIEW task can be approved or rejected with reviewer notes. Approval re-runs deterministic hard gates, checks current PayPal authorization and budget, refuses if prior captures are unresolved, then persists the reviewer event and stable capture attempt before calling PayPal. Rejection records the reviewer decision without a capture request.
 9. **Proof Receipt:** the receipt API exports evidence, acceptance criteria, verifier provenance, review decision, payment status, and events. Canonicalized SHA-256 hashes make snapshot changes detectable; they do not prove evidence truth.
 10. **Scenario simulator:** PASS, REVIEW, and FAIL use synthetic evidence, report zero actual capture, and never call PayPal payment endpoints.
-11. **Verify and close:** refresh authorization from PayPal. After all capture attempts are resolved, the operator can explicitly request a void of the unused authorization remainder.
+11. **Artifact path:** uploaded JSON/CSV bytes are size-limited and hashed; structural checks cover required fields, uniqueness, numeric values, and minimum rows. Malformed input routes to REVIEW. The preview endpoint has no payment side effects.
+12. **Saved artifact task:** the operator can persist the verification result and criteria on a selected local sandbox authorization. A separate capture endpoint accepts only a recorded PASS artifact task, then rechecks live provider status, amount budget, unresolved captures, and prior attempts before recording a stable request ID and calling PayPal.
+13. **Receipt validation:** an independent verifier recomputes evidence, criteria, and receipt hashes. If the original artifact bytes are supplied, it also checks their digest.
+14. **Verify and close:** refresh authorization from PayPal. After all capture attempts are resolved, the operator can explicitly request a void of the unused authorization remainder.
 
 ## Trust boundaries
 
@@ -43,7 +48,8 @@ flowchart LR
 | Groq | Advisory semantic assessment of Task A evidence. Output is structured and revalidated; it has no payment tools. |
 | PayPal sandbox | Authoritative external state for order, authorization, capture, and void status. |
 | JSON state | Local audit aid for this single-process demo. It is not a transactional production datastore. |
-| Proof Receipt | Hashed snapshot of evidence and decisions; hashes detect snapshot changes but do not establish truth or authenticated provenance. |
+| Artifact verifier | Deterministic structural checks against explicit JSON/CSV rules. It does not establish business correctness or factual truth. |
+| Proof Receipt | Hashed snapshot of evidence, criteria, artifact digest, and decisions; the verifier detects changes but does not establish truth or authenticated provenance. |
 | Scenario simulator | Uses synthetic examples and never calls PayPal; output is hypothetical, not a live verification result. |
 
 ## Decision policy
@@ -90,6 +96,8 @@ Eligibility is not itself proof that a capture succeeded. Capture status is reco
 - Rejections never call PayPal capture endpoints.
 - Review is unauthenticated in this local demo. Reviewer names are unverified audit labels; do not expose this API to a network.
 - Simulation receipts use mode SIMULATION_ONLY, payment.authoritative false, and no capture ID.
+- Custom artifact capture is a separate user action and is available only for a persisted artifact task with PASS. Upload and preview routes never call PayPal payment endpoints.
+- The artifact parser accepts only JSON objects/arrays and CSV with unique headers, caps raw text at 20 KB and records at 500, and stores a preview of no more than three rows.
 
 ## Deliberate non-goals
 
