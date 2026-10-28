@@ -993,7 +993,7 @@ app.post(
                 typeof attempt.requestId !== "string" ||
                 !/^[A-Za-z0-9._:-]{1,100}$/.test(attempt.requestId) ||
                 typeof attempt.amount !== "string" ||
-                !/^(?:0|[1-9]\d{0,2})\.\d{2}$/.test(attempt.amount)
+                !/^(?:0|[1-9]\d{0,2})\.\d{2}$/.test(attempt.amount) ||
                 local.currency !== "USD"
               ) {
                 attempt.status = "UNKNOWN";
