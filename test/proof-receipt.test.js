@@ -38,6 +38,20 @@ test("proof receipt includes content hashes and a receipt hash", () => {
   assert.equal(receipt.payment.authoritative, true);
 });
 
+test("receipt verifier detects changed acceptance criteria", () => {
+  const receipt = createProofReceipt({
+    task: task(),
+    generatedAt: "2026-10-28T00:01:00.000Z",
+    simulated: true,
+  });
+  const tampered = JSON.parse(JSON.stringify(receipt));
+  tampered.task.acceptanceCriteria = "A different criterion";
+
+  const result = verifyProofReceipt(tampered);
+  assert.equal(result.valid, false);
+  assert.equal(result.checks.find((check) => check.id === "criteria-hash").status, "FAIL");
+});
+
 test("evidence hashes are stable across object key order and change when evidence changes", () => {
   const a = createProofReceipt({
     task: task({ evidence: { a: 1, b: 2 }, captureId: null }),
