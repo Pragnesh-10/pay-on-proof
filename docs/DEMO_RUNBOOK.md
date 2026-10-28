@@ -20,7 +20,7 @@ npm start
 
 `npm run test:groq` makes a live Groq request and may incur usage. It makes no PayPal payment request. Skip this command if the live API key is not configured; the automated tests do not require a live Groq key.
 
-Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The default server binding is `127.0.0.1`.
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The server accepts only loopback host bindings (`127.0.0.1` or `::1`) while the API has no authentication. It rejects `HOST=0.0.0.0`. Do not place it behind a public reverse proxy or tunnel. The default server binding is `127.0.0.1`.
 
 ## Safer preview-first workflow
 
@@ -106,6 +106,8 @@ The AI model can return REVIEW for Task A, in which case the system must not cap
 - [ ] Full payment demo uses a new authorization, never an old completed/voided one.
 - [ ] Captures reconciled before void.
 - [ ] PASS / REVIEW / FAIL simulator explicitly shows zero payment side effects.
+- [ ] Failure-injection tests confirm an ambiguous capture reuses the same request ID, pending captures remain unresolved, and void stays blocked until resolution.
+- [ ] Startup refuses non-loopback `HOST` values.
 - [ ] Any human approval was intentional, reviewed, and sandbox-only; uncertain outcomes were reconciled.
 - [ ] Proof Receipts have accurate capture IDs/status; simulation receipts are not presented as real transactions.
 - [ ] Artifact preview reports zero payment side effects and malformed files never produce PASS.
