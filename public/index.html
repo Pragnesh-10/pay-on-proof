@@ -56,6 +56,26 @@
       border-radius: 10px; font-size: 12px;
     }
     #message { min-height: 24px; }
+    .section-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap; }
+    .section-head h2 { margin:0 0 8px; }
+    .section-head p { margin:0; max-width:720px; }
+    .pill { display:inline-flex; align-items:center; border:1px solid #344363; color:#aab6d4; padding:6px 9px; border-radius:999px; font-size:10px; letter-spacing:.1em; font-weight:800; white-space:nowrap; }
+    .pill.warning { color:#ffd27a; border-color:#79623a; }
+    .scenario-buttons { display:flex; flex-wrap:wrap; gap:6px; margin:16px 0; }
+    .scenario-result { margin-top:12px; padding:16px; border:1px solid #354363; border-radius:12px; background:#0b1020; }
+    .scenario-result h3 { margin:0 0 8px; }
+    .empty-state { padding:14px; border:1px dashed #354363; border-radius:12px; color:#aab6d4; }
+    .review-form { display:grid; grid-template-columns:1fr 2fr; gap:8px; margin-top:14px; }
+    .review-form label { font-size:12px; color:#aab6d4; }
+    .review-form input { margin:5px 0 0; }
+    .task-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+    .receipt-meta { font-size:12px; color:#aab6d4; overflow-wrap:anywhere; }
+    .task .task-head { align-items:flex-start; }
+    @media (max-width: 650px) {
+      .review-form { grid-template-columns:1fr; }
+      main { padding:22px 14px 40px; }
+    }
+
     @media (max-width: 650px) {
       .metrics { grid-template-columns: 1fr; }
     }
@@ -103,11 +123,51 @@
   </section>
 
   <section class="panel">
+    <div class="section-head">
+      <div>
+        <h2>Three-scenario simulator</h2>
+        <p>Try PASS, REVIEW, and FAIL using synthetic evidence. These scenarios never call PayPal or capture money.</p>
+      </div>
+      <span class="pill">PAYMENT-FREE</span>
+    </div>
+    <div class="scenario-buttons">
+      <button data-scenario="pass">Simulate PASS</button>
+      <button data-scenario="review" class="secondary">Simulate REVIEW</button>
+      <button data-scenario="fail" class="secondary">Simulate FAIL</button>
+    </div>
+    <div id="scenarioResult" class="empty-state">Choose a scenario to see its evidence, decision, payment policy, and simulation-only Proof Receipt.</div>
+  </section>
+
+  <section class="panel">
     <h2>Task verification</h2>
     <p>Each payment decision is linked to a task's acceptance criteria and evidence.</p>
     <div id="tasks" class="tasks">
       <p class="muted">Run the demo or load a saved session to view task results.</p>
     </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <div>
+        <h2>Human review queue</h2>
+        <p>Only an actual task marked REVIEW can be reviewed here. Approval can trigger a real PayPal sandbox capture; rejection cannot.</p>
+      </div>
+      <span class="pill warning">LOCAL DEMO ONLY</span>
+    </div>
+    <div id="reviewQueue" class="tasks">
+      <p class="muted">Load a saved authorization or run the demo to check for tasks requiring human review.</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <div>
+        <h2>Proof Receipts</h2>
+        <p>Export the recorded evidence, acceptance criteria, verifier provenance, review decisions, payment status, event history, and SHA-256 integrity hashes.</p>
+      </div>
+    </div>
+    <button id="downloadAllReceipts" class="secondary">Download all receipts for this authorization</button>
+    <p class="muted">A hash detects changes to the recorded snapshot; it does not prove that the evidence is true. Pending or uncertain financial states must still be checked with PayPal.</p>
   </section>
 
   <section class="panel">
@@ -119,6 +179,7 @@
 <script>
   const $ = (id) => document.getElementById(id);
   let busy = false;
+  let activeAuthorizationId = "";
 
   function message(text) {
     $("message").textContent = text;
@@ -155,7 +216,147 @@
     return "$" + (Number(cents || 0) / 100).toFixed(2);
   }
 
-  function renderTasks(tasks = []) {
+  function downloadJson(filename, value) {
+    const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function renderScenarioResult(data) {
+    const root = $("scenarioResult");
+    root.replaceChildren();
+    const card = document.createElement("div");
+    card.className = "scenario-result";
+    const title = document.createElement("h3");
+    title.textContent = data.scenario.title;
+    title.className = data.task.verification === "PASS" ? "pass" :
+      data.task.verification === "FAIL" ? "fail" : "review";
+    const description = document.createElement("p");
+    description.textContent = data.scenario.description;
+    const decision = document.createElement("p");
+    decision.textContent = "Decision: " + data.task.verification + " · Payment policy: " + data.paymentOutcome;
+    const notice = document.createElement("p");
+    notice.className = "muted";
+    notice.textContent = data.message + " Simulated captured amount: " + money(Number(data.actualCapturedAmount) * 100) + ".";
+    const hash = document.createElement("p");
+    hash.className = "receipt-meta";
+    hash.textContent = "Simulation receipt SHA-256: " + data.proofReceipt.receiptSha256;
+    const receiptButton = document.createElement("button");
+    receiptButton.className = "secondary";
+    receiptButton.textContent = "Download simulation Proof Receipt";
+    receiptButton.addEventListener("click", () => downloadJson("pay-on-proof-simulation-" + data.scenario.id + "-receipt.json", data.proofReceipt));
+    card.append(title, description, decision, notice, hash, receiptButton);
+    root.append(card);
+    renderTasks([data.task], false);
+    showAudit(data);
+  }
+
+  function renderReviewQueue(tasks = [], authorizationId = activeAuthorizationId) {
+    const root = $("reviewQueue");
+    root.replaceChildren();
+    const candidates = tasks.filter((task) => task.verification === "REVIEW");
+    if (!authorizationId || !candidates.length) {
+      const empty = document.createElement("p");
+      empty.className = "muted";
+      empty.textContent = candidates.length
+        ? "Select or refresh the recorded authorization to review its tasks."
+        : "No REVIEW tasks are waiting in this session.";
+      root.append(empty);
+      return;
+    }
+
+    for (const task of candidates) {
+      const card = document.createElement("article");
+      card.className = "task";
+      const title = document.createElement("h3");
+      title.textContent = task.title || task.taskId;
+      const reason = document.createElement("p");
+      reason.textContent = task.reason || "No verifier reason was recorded.";
+      const status = document.createElement("p");
+      status.className = "receipt-meta";
+      status.textContent = task.review
+        ? "Review status: " + task.review.status + " · Reviewer: " + task.review.reviewer
+        : "Review required · Task amount: $" + Number(task.amount || 0).toFixed(2);
+      const evidence = document.createElement("pre");
+      evidence.textContent = JSON.stringify(task.evidence || {}, null, 2);
+      card.append(title, reason, status, evidence);
+
+      if (!task.review && task.captureStatus === "NOT_ATTEMPTED") {
+        const form = document.createElement("div");
+        form.className = "review-form";
+        const reviewerLabel = document.createElement("label");
+        reviewerLabel.textContent = "Reviewer name";
+        const reviewer = document.createElement("input");
+        reviewer.value = "Local reviewer";
+        reviewer.maxLength = 80;
+        reviewerLabel.append(reviewer);
+        const notesLabel = document.createElement("label");
+        notesLabel.textContent = "Review notes (required)";
+        const notes = document.createElement("input");
+        notes.placeholder = "Explain why the evidence is sufficient or insufficient";
+        notes.maxLength = 500;
+        notesLabel.append(notes);
+        form.append(reviewerLabel, notesLabel);
+        const actions = document.createElement("div");
+        actions.className = "task-actions";
+        const approve = document.createElement("button");
+        approve.textContent = "Approve & capture";
+        const reject = document.createElement("button");
+        reject.textContent = "Reject — no capture";
+        reject.className = "secondary";
+
+        const submitReview = (decision) => {
+          if (reviewer.value.trim().length < 2) {
+            message("Enter a reviewer name (at least 2 characters).");
+            return;
+          }
+          if (notes.value.trim().length < 5) {
+            message("Add review notes (at least 5 characters).");
+            return;
+          }
+          if (decision === "APPROVE" && !confirm(
+            "Approving this REVIEW task can send a real capture request to PayPal sandbox for $" +
+            Number(task.amount || 0).toFixed(2) + ". The action cannot be undone here. Continue?"
+          )) return;
+
+          action(async () => {
+            const response = await api(
+              "/api/authorizations/" + encodeURIComponent(authorizationId) +
+              "/tasks/" + encodeURIComponent(task.taskId) + "/review",
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  decision,
+                  reviewer: reviewer.value.trim(),
+                  notes: notes.value.trim()
+                })
+              }
+            );
+            showAudit(response);
+            message(response.message || "Review action recorded.");
+            await refreshStatus();
+          });
+        };
+        approve.addEventListener("click", () => submitReview("APPROVE"));
+        reject.addEventListener("click", () => submitReview("REJECT"));
+        actions.append(approve, reject);
+        card.append(form, actions);
+      } else if (task.review) {
+        const notes = document.createElement("p");
+        notes.textContent = "Review notes: " + task.review.notes;
+        card.append(notes);
+      }
+      root.append(card);
+    }
+  }
+
+  function renderTasks(tasks = [], receiptEnabled = false) {
     const root = $("tasks");
     root.replaceChildren();
 
@@ -214,6 +415,28 @@
         card.append(capture);
       }
 
+      if (task.review) {
+        const reviewDetail = document.createElement("p");
+        reviewDetail.className = "receipt-meta";
+        reviewDetail.textContent = "Human review: " + task.review.status + " by " + task.review.reviewer + " · " + task.review.notes;
+        card.append(reviewDetail);
+      }
+
+      if (receiptEnabled && activeAuthorizationId && task.taskId) {
+        const receiptButton = document.createElement("button");
+        receiptButton.className = "secondary";
+        receiptButton.textContent = "Download Proof Receipt";
+        receiptButton.addEventListener("click", () => action(async () => {
+          const receipt = await api(
+            "/api/authorizations/" + encodeURIComponent(activeAuthorizationId) +
+            "/receipt/" + encodeURIComponent(task.taskId)
+          );
+          downloadJson("pay-on-proof-" + task.taskId + "-receipt.json", receipt);
+          message("Proof Receipt downloaded. SHA-256: " + receipt.receiptSha256);
+        }));
+        card.append(receiptButton);
+      }
+
       root.append(card);
     }
   }
@@ -221,6 +444,7 @@
   async function refreshStatus() {
     const id = $("authorizationId").value.trim();
     if (!id) throw new Error("Enter an authorization ID first.");
+    activeAuthorizationId = id;
 
     const data = await api(
       "/api/authorizations/" + encodeURIComponent(id)
@@ -237,7 +461,8 @@
     const state = await api("/api/state");
     const auth = state.authorizations?.[id];
     const tasks = Array.isArray(auth?.tasks) ? auth.tasks : [];
-    renderTasks(tasks);
+    renderTasks(tasks, true);
+    renderReviewQueue(tasks, id);
     showAudit({ authorization: data, savedTaskResults: tasks });
   }
 
@@ -302,7 +527,9 @@
       { method: "POST" }
     );
 
-    renderTasks(data.tasks || []);
+    activeAuthorizationId = id;
+    renderTasks(data.tasks || [], true);
+    renderReviewQueue(data.tasks || [], id);
     showAudit(data);
     message(data.message || `Demo status: ${data.demoRunStatus || "unknown"}`);
     await refreshStatus();
@@ -346,6 +573,24 @@
     showAudit(data);
     message(`Authorization status: ${data.status || "check response"}`);
     await refreshStatus();
+  }));
+
+  document.querySelectorAll("[data-scenario]").forEach((button) => {
+    button.addEventListener("click", () => action(async () => {
+      const id = button.dataset.scenario;
+      const data = await api("/api/scenarios/" + encodeURIComponent(id) + "/simulate", { method: "POST" });
+      renderScenarioResult(data);
+      message("Scenario " + id.toUpperCase() + " simulated. No PayPal payment request was made.");
+    }));
+  });
+
+  $("downloadAllReceipts").addEventListener("click", () => action(async () => {
+    const id = $("authorizationId").value.trim();
+    if (!id) throw new Error("Enter an authorization ID first.");
+    activeAuthorizationId = id;
+    const data = await api("/api/authorizations/" + encodeURIComponent(id) + "/receipts");
+    downloadJson("pay-on-proof-" + id + "-proof-receipts.json", data);
+    message("Downloaded " + data.receiptCount + " Proof Receipt(s).");
   }));
 
   api("/api/health").then((data) => {
