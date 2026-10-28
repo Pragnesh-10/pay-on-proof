@@ -14,7 +14,7 @@ The product demonstrates a workflow that can take a payment action on a user's b
 
 **Supporting category: Money Movement Experiences.** Pay-on-Proof demonstrates per-task partial captures and release of unused authorization, but its main differentiation is the verification-to-payment control layer rather than a novel consumer transfer method.
 
-The current implementation remains a sandbox prototype. The custom artifact path has a separate explicit capture action; the controlled demo can automatically process its predefined task bundle after the user starts the run. Avoid claiming fully autonomous general-purpose agents or production readiness.
+The current implementation remains a sandbox prototype. The custom artifact path supports payment-free preview, save-only, and a bounded one-click agent workflow. The workflow requires explicit confirmation, verifies and records the artifact, then attempts a single sandbox capture only for a newly recorded PASS. REVIEW/FAIL do not capture, and a previously recorded task is never auto-captured again. The controlled demo can also process its predefined task bundle after the user starts the run. Avoid claiming fully autonomous general-purpose agents or production readiness.
 
 ## The problem
 
