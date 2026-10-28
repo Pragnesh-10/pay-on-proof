@@ -684,6 +684,12 @@ app.post(
 
           auth.captures.push(captureAttempt);
           taskRecord.captureStatus = "IN_PROGRESS";
+          taskRecord.events.push({
+            type: "CAPTURE_ATTEMPT_STARTED",
+            at: captureAttempt.startedAt,
+            requestId,
+            amount: task.amount,
+          });
           saveState();
 
           try {
@@ -711,6 +717,12 @@ app.post(
 
             taskRecord.captureId = capture.id || null;
             taskRecord.captureStatus = capture.status || "UNKNOWN";
+            taskRecord.events.push({
+              type: "CAPTURE_RESPONSE",
+              at: captureAttempt.finishedAt,
+              status: taskRecord.captureStatus,
+              captureId: taskRecord.captureId,
+            });
 
             saveState();
             results.push(taskRecord);
@@ -750,6 +762,12 @@ app.post(
             captureAttempt.finishedAt = new Date().toISOString();
 
             taskRecord.captureStatus = captureAttempt.status;
+            taskRecord.events.push({
+              type: "CAPTURE_ERROR",
+              at: captureAttempt.finishedAt,
+              status: captureAttempt.status,
+              httpStatus: captureAttempt.errorStatus,
+            });
             auth.demoRunStatus = "NEEDS_RECONCILIATION";
             auth.updatedAt = new Date().toISOString();
             saveState();
@@ -1457,7 +1475,12 @@ app.get("/api/authorizations/:authorizationId/receipts", (req, res) => {
   if (!auth) return res.status(404).json({ error: "Authorization is not recorded locally." });
 
   const receipts = (auth.tasks || []).map((task) =>
-    createProofReceipt({ authorizationId, currency: auth.currency || "USD", task })
+    createProofReceipt({
+      authorizationId,
+      currency: auth.currency || "USD",
+      authorizationStatus: auth.status || null,
+      task,
+    })
   );
   res.json({
     authorizationId,
@@ -1479,6 +1502,7 @@ app.get("/api/authorizations/:authorizationId/receipt/:taskId", (req, res) => {
   res.json(createProofReceipt({
     authorizationId,
     currency: auth.currency || "USD",
+    authorizationStatus: auth.status || null,
     task,
   }));
 });
