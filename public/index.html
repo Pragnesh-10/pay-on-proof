@@ -683,6 +683,46 @@
         receipt
       ));
       root.append(hash, download);
+
+      if (options.authorizationId && task.captureStatus === "COMPLETED" && task.captureId) {
+        const disputeEvidence = document.createElement("button");
+        disputeEvidence.className = "secondary";
+        disputeEvidence.textContent = "Prepare PayPal dispute evidence";
+        disputeEvidence.addEventListener("click", () => action(async () => {
+          const disputeId = window.prompt("Enter the PayPal dispute ID for this completed capture:");
+          if (!disputeId || !disputeId.trim()) return;
+          const disputePath = "/api/authorizations/" + encodeURIComponent(options.authorizationId) +
+            "/tasks/" + encodeURIComponent(task.taskId) +
+            "/disputes/" + encodeURIComponent(disputeId.trim());
+          const prepared = await api(disputePath + "/evidence-package");
+          const evidencePackage = prepared.evidencePackage;
+          downloadJson(
+            "pay-on-proof-" + task.taskId + "-dispute-" + disputeId.trim() + "-evidence.json",
+            evidencePackage
+          );
+
+          const evidenceNotes = document.createElement("pre");
+          evidenceNotes.textContent = "Merchant notes draft\n\n" + evidencePackage.merchantNotesDraft +
+            "\n\nSubmission eligible: " +
+            (evidencePackage.submissionEligibility.canSubmitOtherEvidenceNote ? "Yes, OTHER was requested by PayPal." : "No. " +
+              evidencePackage.submissionEligibility.reasons.join(" "));
+          root.append(evidenceNotes);
+          showAudit(prepared);
+
+          if (evidencePackage.submissionEligibility.canSubmitOtherEvidenceNote &&
+              window.confirm("Review the notes above. Submit this OTHER evidence note to the PayPal SANDBOX dispute now? This sends data to PayPal and does not guarantee a favorable outcome.")) {
+            const submitted = await api(disputePath + "/provide-evidence", {
+              method: "POST",
+              body: JSON.stringify({ confirm: true })
+            });
+            showAudit(submitted);
+            message(submitted.message || "Evidence submission request accepted by PayPal.", "success");
+          } else {
+            message("Dispute evidence package downloaded. No evidence was submitted to PayPal.", "success");
+          }
+        }));
+        root.append(disputeEvidence);
+      }
     }
 
     if (data.paymentSideEffects === false) {
