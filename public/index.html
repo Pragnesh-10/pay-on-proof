@@ -367,7 +367,7 @@
     <section class="panel" id="artifact-section">
       <div class="section-head">
         <div>
-          <h2>Real artifact verification</h2>
+          <h2>Structural artifact verification</h2>
           <p>Inspect a JSON or CSV artifact against explicit structural rules. Preview is payment-free. For a bounded agent workflow, start one confirmed run to verify, save the task, and request a single sandbox capture only for a newly recorded PASS; REVIEW and FAIL never trigger capture.</p>
         </div>
         <span class="pill">MAX 20 KB</span>
@@ -405,10 +405,10 @@
         <button id="verifyArtifact" class="secondary">Verify artifact (no payment)</button>
         <button id="saveArtifactTask" class="secondary">Save to selected authorization</button>
       </div>
-      <p class="muted">The agent workflow requires confirmation before it starts. It never retries a previously recorded task automatically; inspect the task and use the separate capture control only when appropriate.</p>
+      <p class="muted">The artifact-processing workflow requires confirmation before it starts. It never retries a previously recorded task automatically; inspect the task and use the separate capture control only when appropriate.</p>
       <div class="notice">
         <span class="notice-icon" aria-hidden="true">ⓘ</span>
-        <span>Structural PASS means only that the configured rules passed. It does not prove business correctness or factual truth. Artifact task records keep the file digest and up to three preview rows, not the full uploaded content.</span>
+        <span>Structural PASS means only that the configured rules passed. It does not prove business correctness or factual truth. For buyer-reference comparison, use the Independent data verification section below.</span>
       </div>
       <div id="artifactResult" class="empty-state" aria-live="polite">Choose a JSON or CSV file and configure its acceptance rules to begin.</div>
       <div class="subpanel" style="margin-top:18px">
