@@ -2,84 +2,74 @@
 
 ## What problem does this solve?
 
-It demonstrates a task-level payment gate: the backend evaluates each task against acceptance criteria and only attempts payment capture for a passing result. It explores how staged agentic work could be matched to staged payment, rather than treating an AI-generated completion claim as payment authority.
+It explores how to make payment decisions depend on a deliverable that the backend checks against a buyer-approved contract, rather than relying only on the worker's claim that the work passed. The current independent-verification example is structured data reconciliation.
 
-## Which hackathon category does this fit best?
+## What is the strongest differentiator?
 
-The strongest fit is **AI Agents or Automation** because the backend does more than recommend: once a user starts the bounded workflow, it evaluates the result and can make a PayPal sandbox partial capture for a task that passes. It also fits **Business Solutions** as a task-payment control layer for platforms paying for staged deliverables. It is less directly a consumer money-transfer experience because it does not introduce a new P2P transfer method.
+The buyer submits source data and freezes the verification contract before the worker submits output. The backend stores those values, then independently checks unique record keys, full source-key coverage, protected source fields, and formula-derived values. The worker submission cannot replace the source data or rules and cannot make the verifier pass by supplying `passed: true`.
 
-## Is this really an agent if the model cannot call PayPal?
+This is deliberately narrower than a general-purpose work verifier.
 
-The product is a bounded agentic workflow with a deliberately separated transaction executor. In the predefined demo, the optional LLM assesses a narrow semantic criterion; the custom artifact workflow applies explicit structural rules. After the operator confirms a workflow, the backend evaluates and records the artifact, then can request one PayPal sandbox capture only for a newly recorded PASS. Deterministic backend policy—not model tool access—controls the capture. REVIEW and FAIL fail closed, and previously recorded tasks are not auto-captured again.
+## How is this different from milestone payments?
 
-## What is the key idea?
+Milestone products already support staged deliverables and human approval. Pay-on-Proof does not claim to replace those products. It focuses on one automation layer: independently checking a contracted result against buyer-controlled source data, then connecting a PASS to a guarded PayPal sandbox partial capture.
 
-The key design choice is the **separation of verification from payment execution**. An AI model can provide advisory semantic review, but only backend logic can initiate a capture, and only after deterministic hard gates and a final PASS decision.
+## Which hackathon award is the best fit?
 
-## Why use an LLM at all?
+The hackathon does not prescribe tracks. The most defensible current target is **Best Use of PayPal + AI** because the project combines a narrow AI-assisted review in the controlled report demo with PayPal payment operations and backend decision controls. Do not claim Best Use of Agentic Commerce as an implemented capability yet; there is no worker agent creating the deliverable or separate seller payout flow.
 
-Task A includes a natural-language summary. Deterministic rules can check that the title and summary exist, but they do not determine whether the summary clearly states a meaningful result. Groq supplies an advisory semantic assessment for that narrow step. Tasks B and C are machine-checkable and remain deterministic.
+## Is this really an AI agent?
 
-## Why add human review if the verifier already returns a decision?
+Not yet in the full autonomous-worker sense. The current dashboard orchestrates bounded actions after operator input. Groq provides an advisory semantic review for one predefined report task; the new reference-backed data verifier is deterministic. The accurate description is **evidence-gated payment automation with optional AI-assisted review**. A future worker agent should create the output, while a separate verifier checks it and a separate policy service controls payment.
 
-The model flags ambiguity rather than making the final business judgment. A reviewer records a name and rationale. Approval is only available for a stored REVIEW task, cannot bypass deterministic required-field checks, rechecks PayPal authorization and budget, and blocks if another capture is unresolved. Reviewer identity is not authenticated in this prototype, so this is for local sandbox demonstration only.
+## How does the independent verifier work?
 
-## Can a user submit actual work, or is everything hardcoded?
+The buyer creates a contract on an active sandbox authorization before output submission. The contract includes a source file, unique key, preserved fields, deterministic formulas, and amount. The backend validates and stores parsed source rows, source digest, criteria, and contract status. The worker submits only an output file. The server compares the output to the stored source and frozen criteria.
 
-The prototype accepts JSON and CSV artifacts up to 20 KB and applies explicit required-field, uniqueness, numeric-field, and minimum-row checks. It can save the result against an existing sandbox authorization. The structural verifier does not establish domain correctness or factual truth, and artifact capture is a separate explicit operation.
+## What happens if the worker submits fake success flags?
 
-## How do you know the verifier is accurate?
+The reference-backed route does not read or trust worker-supplied pass booleans. It checks the worker's actual parsed output rows and recalculates the contracted formulas from buyer-source values. For example, the invoice demo rejects a `lineTotal` that does not equal `quantity × unitPrice`.
 
-We do not claim a validated accuracy percentage. The repository includes a small authored synthetic case set and an optional Groq evaluation script that reports exact-match, false-pass, false-fail, review-rate, provider-error, and latency metrics. Those results are exploratory until the cases are reviewed and expanded into representative human-labelled evaluation data.
+## Can it detect every kind of fraud or bad work?
 
-## Can the artifact upload automatically move money?
+No. The reference verifier proves only its explicit checks: keys, record coverage, protected fields, and configured formulas. It cannot establish whether the buyer's source is authentic, whether a formula is the right business rule, or whether unrelated claims are true. We need trusted source connectors and domain-specific checks to expand coverage.
 
-Preview and save-only operations never call PayPal payment endpoints. The explicit, confirmed agent workflow can request one partial capture for a newly recorded PASS artifact task; it cannot capture FAIL or REVIEW, and it does not auto-capture a previously recorded task again. Before a capture, the backend rechecks current PayPal authorization status, available budget, unresolved captures, and duplicate attempts. A separate manual capture action remains available for a saved PASS task after the operator inspects it.
+## Can a contract be changed after the worker submits?
 
-## How can a Proof Receipt be checked?
+A reference contract is stored before submission and accepts one submission. The worker route uses the stored source rows and criteria rather than accepting replacements. A failed submission is retained; a revised attempt needs a newly approved contract. The current prototype has no authenticated buyer identity, so this is a local workflow control rather than a production authorization guarantee.
 
-The verifier recomputes the evidence, criteria, and receipt hashes from the receipt itself. If the original artifact is also supplied, it checks whether the raw artifact bytes match the recorded SHA-256 digest. These checks detect changes; they do not prove that artifact claims are true or that the receipt issuer is authenticated.
+## Does the system use AI to verify the invoice output?
 
-## What is a Proof Receipt?
+No. The invoice reconciliation verifier is deterministic. It performs precise comparisons and arithmetic. Groq is used only for the narrow semantic review of Task A in the separate predefined report demo. We avoid sending simple calculations to an LLM because deterministic code is more reliable for those checks.
 
-It is a downloadable snapshot of the evidence, criteria, verifier source/model, original decision, any reviewer action, payment status, event history, and SHA-256 hashes. Hashes make changes to recorded bytes detectable; they do not prove evidence is truthful or independently sourced. Simulation receipts are explicitly non-authoritative.
+## Does the AI have payment tools?
 
-## Does the PASS / REVIEW / FAIL simulator move money?
+No. Groq receives a bounded verification request and returns an advisory structured decision. It does not receive PayPal credentials or payment tools. The backend validates the response and independently enforces the capture policy.
 
-No. It uses synthetic fixtures, never calls PayPal, reports $0 actual captured, and marks receipts SIMULATION_ONLY. A real sandbox capture is only possible in the separate authorized payment workflow.
+## Can the worker receive the captured funds?
 
-## What if the model hallucinates or the API is down?
+Not in the current implementation. The demo captures against the PayPal authorization associated with the order. It does not onboard a worker as a separate payee or implement seller disbursement. A complete marketplace would need a supported PayPal multiparty/seller or payout integration, plus eligibility and partner approval where required.
 
-The model does not prove factual truth; no source data or calibrated benchmark is included in this prototype. A malformed decision, FAIL, REVIEW, timeout, or provider error is not a PASS. The backend routes errors to REVIEW and does not capture that task.
+## Does the artifact upload automatically move money?
 
-## Can the AI spend money?
-
-No. The verifier makes a Groq API request and returns a decision, but has no PayPal tools. PayPal credentials stay on the server. Captures happen only in the backend payment route after the decision gate.
+Preview, contract creation, and output submission do not call PayPal payment endpoints. A separate capture action is available only for a stored PASS task. Before capture, the backend rechecks current authorization status, available budget, unresolved captures, void state, and duplicate attempts. FAIL and REVIEW are blocked.
 
 ## What prevents duplicate captures?
 
-The server stores each attempt before sending it, uses a stable `PayPal-Request-Id`, enforces a single-use demo guard per authorization, and reserves unresolved amounts against the budget. For an uncertain outcome, reconciliation queries a known capture or replays the same request ID and payload instead of inventing a new capture request. The system follows PayPal's idempotency behavior; it is still necessary to inspect the provider state.
+The server stores each capture attempt before sending it, uses a stable `PayPal-Request-Id`, and reserves unresolved amounts against the budget. For uncertain outcomes, reconciliation queries a known capture or replays the same request ID and payload. A task with an existing capture attempt is blocked from another capture.
 
-## What happens if a capture times out?
+## What does a Proof Receipt prove?
 
-It is recorded as uncertain, not assumed to have failed. The amount remains reserved and void is blocked until reconciliation. The app intentionally does not resume a partially completed task sequence automatically after reconciliation.
+It records evidence, contract criteria, verifier provenance and checks, decision, payment status, and event history. SHA-256 hashes detect changes to the recorded snapshot. They do not prove the source file is authentic, the facts are true, or the receipt issuer is authenticated.
 
-## Why PayPal sandbox?
+## What about PayPal authorization expiry?
 
-It demonstrates authorization, partial capture, status refresh, and voiding without using real funds. The intended example uses a $50 authorization and two partial captures for $15 and $20; the incomplete $10 task is not captured. The remaining $15 authorization is voided rather than refunded.
-
-## Does a void refund completed captures?
-
-No. Voiding the remaining authorization releases the amount that was not captured. It does not reverse completed captures.
-
-## How accurate is the AI verifier?
-
-There is no defensible accuracy percentage yet. One live smoke test returned PASS for a synthetic report containing a concrete 8% revenue increase, but a single smoke test is a connectivity check, not an accuracy evaluation. An evaluation dataset with human-labelled decisions and false-pass/false-fail metrics is a future requirement.
+Authorization has a limited validity window and the highest capture success is during the initial honor period. The current prototype does not implement authorization expiry monitoring or reauthorization. The sandbox demo should not be presented as proof of production expiry handling.
 
 ## Is this production ready?
 
-No. It is a hackathon prototype for local sandbox demonstration. It has no user authentication/authorization, uses local JSON state and a single-process in-memory mutation queue, and has no distributed lock or durable transaction/outbox architecture. It must not be exposed to the public internet.
+No. This is a local sandbox prototype. It has no user authentication/authorization, uses local JSON state and a single-process in-memory mutation queue, has no distributed lock or durable outbox, and does not implement worker payouts or webhooks. The server is restricted to loopback and must not be exposed to the public internet.
 
 ## What would you build next?
 
-I would first add authenticated task ownership and transactional persistence, then expand the artifact verifier with domain-specific trusted-source rules and a fuller provider reconciliation/failure-injection test suite. Before broadening the AI role, I would build a labelled evaluation set and measure false-pass and false-fail behavior. That improves safety before adding complexity.
+First add a genuine worker agent that produces the deliverable from the buyer-approved contract. Keep the reference verifier separate and test it with adversarial outputs. Then add trusted source connectors and a real seller payout flow. Before production, add authenticated task ownership, transactional persistence, durable jobs, webhook processing, authorization lifecycle handling, and human-labelled verifier evaluations.

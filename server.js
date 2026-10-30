@@ -746,6 +746,7 @@ app.post("/api/authorizations/:authorizationId/reference-contracts", async (req,
     });
     const contractId = "contract-" + sha256(JSON.stringify({
       authorizationId,
+      title,
       sourceSha256: prepared.sourceArtifact.sha256,
       criteria: prepared.criteria,
       amount,

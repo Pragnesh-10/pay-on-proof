@@ -233,6 +233,7 @@
       <a class="active" href="#overview"><span class="nav-icon" aria-hidden="true">⌂</span>Overview</a>
       <a href="#simulator"><span class="nav-icon" aria-hidden="true">◇</span>Scenario lab</a>
       <a href="#artifact-section"><span class="nav-icon" aria-hidden="true">▧</span>Artifact proof</a>
+      <a href="#reference-section"><span class="nav-icon" aria-hidden="true">✓</span>Independent proof</a>
       <a href="#session"><span class="nav-icon" aria-hidden="true">▣</span>Payment session</a>
       <a href="#tasks-section"><span class="nav-icon" aria-hidden="true">☷</span>Task verification</a>
       <a href="#review-section"><span class="nav-icon" aria-hidden="true">◎</span>Human review</a>
@@ -366,7 +367,7 @@
     <section class="panel" id="artifact-section">
       <div class="section-head">
         <div>
-          <h2>Real artifact verification</h2>
+          <h2>Structural artifact verification</h2>
           <p>Inspect a JSON or CSV artifact against explicit structural rules. Preview is payment-free. For a bounded agent workflow, start one confirmed run to verify, save the task, and request a single sandbox capture only for a newly recorded PASS; REVIEW and FAIL never trigger capture.</p>
         </div>
         <span class="pill">MAX 20 KB</span>
@@ -398,16 +399,16 @@
         </div>
       </div>
       <div class="button-row">
-        <button id="processArtifactWorkflow">Run agent workflow · capture only on PASS</button>
+        <button id="processArtifactWorkflow">Process artifact · capture only on PASS</button>
       </div>
       <div class="button-row">
         <button id="verifyArtifact" class="secondary">Verify artifact (no payment)</button>
         <button id="saveArtifactTask" class="secondary">Save to selected authorization</button>
       </div>
-      <p class="muted">The agent workflow requires confirmation before it starts. It never retries a previously recorded task automatically; inspect the task and use the separate capture control only when appropriate.</p>
+      <p class="muted">The artifact-processing workflow requires confirmation before it starts. It never retries a previously recorded task automatically; inspect the task and use the separate capture control only when appropriate.</p>
       <div class="notice">
         <span class="notice-icon" aria-hidden="true">ⓘ</span>
-        <span>Structural PASS means only that the configured rules passed. It does not prove business correctness or factual truth. Artifact task records keep the file digest and up to three preview rows, not the full uploaded content.</span>
+        <span>Structural PASS means only that the configured rules passed. It does not prove business correctness or factual truth. For buyer-reference comparison, use the Independent data verification section below.</span>
       </div>
       <div id="artifactResult" class="empty-state" aria-live="polite">Choose a JSON or CSV file and configure its acceptance rules to begin.</div>
       <div class="subpanel" style="margin-top:18px">
@@ -427,6 +428,85 @@
           <button id="verifyReceiptFile" class="secondary">Verify receipt integrity</button>
         </div>
         <div id="receiptVerificationResult" class="empty-state" aria-live="polite">No receipt has been checked yet.</div>
+      </div>
+    </section>
+
+    <section class="panel" id="reference-section">
+      <div class="section-head">
+        <div>
+          <h2>Independent data verification</h2>
+          <p>Freeze the buyer's source dataset and acceptance contract first. The worker then submits output separately. The server independently checks record coverage, protected source fields, and deterministic calculations before a task is eligible for capture.</p>
+        </div>
+        <span class="pill success">BUYER-REFERENCED</span>
+      </div>
+      <div class="subpanel">
+        <div class="subpanel-title"><span class="number-badge">1</span><h3>Create the buyer-approved task contract</h3></div>
+        <p>Use synthetic data. These source rows and rules are stored with the local sandbox authorization before any worker output is submitted. Each contract accepts one submission.</p>
+        <div class="field-grid">
+          <div class="field">
+            <label for="referenceTitle">Task description</label>
+            <input id="referenceTitle" value="Reconcile invoice line totals" maxlength="120">
+          </div>
+          <div class="field">
+            <label for="referenceAmount">Task amount (USD)</label>
+            <input id="referenceAmount" value="10.00" inputmode="decimal">
+          </div>
+          <div class="field">
+            <label for="referenceSourceFile">Buyer-controlled source file (JSON or CSV)</label>
+            <input id="referenceSourceFile" type="file" accept=".json,.csv,application/json,text/csv">
+          </div>
+          <div class="field">
+            <label for="referenceKeyField">Unique record key</label>
+            <input id="referenceKeyField" value="id">
+          </div>
+          <div class="field">
+            <label for="referencePreserveFields">Fields that must remain unchanged</label>
+            <input id="referencePreserveFields" value="quantity,unitPrice,description" placeholder="quantity,unitPrice,description">
+          </div>
+          <div class="field">
+            <label for="referenceFormulaField">Calculated output field</label>
+            <input id="referenceFormulaField" value="lineTotal">
+          </div>
+          <div class="field">
+            <label for="referenceFormulaOperation">Approved calculation</label>
+            <select id="referenceFormulaOperation">
+              <option value="multiply" selected>Multiply</option>
+              <option value="add">Add</option>
+              <option value="subtract">Subtract</option>
+              <option value="divide">Divide</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="referenceFormulaInputA">Source input A</label>
+            <input id="referenceFormulaInputA" value="quantity">
+          </div>
+          <div class="field">
+            <label for="referenceFormulaInputB">Source input B</label>
+            <input id="referenceFormulaInputB" value="unitPrice">
+          </div>
+        </div>
+        <div class="button-row">
+          <button id="createReferenceContract">Create and freeze contract</button>
+        </div>
+        <div id="referenceContractResult" class="empty-state" aria-live="polite">No reference contract created yet.</div>
+      </div>
+      <div class="subpanel" style="margin-top:14px">
+        <div class="subpanel-title"><span class="number-badge">2</span><h3>Submit worker output for independent verification</h3></div>
+        <p>The submission endpoint uses the source rows and criteria already stored for the contract. It ignores any replacement source data or rules supplied with the worker output.</p>
+        <div class="field-grid">
+          <div class="field">
+            <label for="referenceOutputFile">Worker output (JSON or CSV)</label>
+            <input id="referenceOutputFile" type="file" accept=".json,.csv,application/json,text/csv">
+          </div>
+        </div>
+        <div class="button-row">
+          <button id="submitReferenceOutput" class="secondary">Verify worker output</button>
+        </div>
+        <div id="referenceResult" class="empty-state" aria-live="polite">Create a buyer-approved contract before submitting worker output.</div>
+      </div>
+      <div class="notice">
+        <span class="notice-icon" aria-hidden="true">ⓘ</span>
+        <span>This is an independent verifier for a narrow data-reconciliation task. It verifies record keys, source-field preservation, and declared arithmetic formulas. It does not establish the authenticity of the buyer's source file or prove arbitrary business claims. No capture occurs during contract creation or verification.</span>
       </div>
     </section>
 
@@ -497,6 +577,7 @@
   let activeAuthorizationId = "";
   let latestArtifactContent = null;
   let latestArtifactResponse = null;
+  let activeReferenceContract = null;
 
   function message(text, kind = "") {
     const node = $("message");
@@ -565,6 +646,12 @@
     metadata.textContent = "Records: " + Number(task.artifact?.recordCount ?? task.evidence?.recordCount ?? 0) +
       " · Artifact SHA-256: " + (task.artifact?.sha256 || task.evidence?.artifactSha256 || "not available");
     root.append(title, reason, metadata);
+    if (task.acceptance?.sourceArtifact?.sha256) {
+      const source = document.createElement("p");
+      source.className = "artifact-meta";
+      source.textContent = "Buyer source SHA-256: " + task.acceptance.sourceArtifact.sha256;
+      root.append(source);
+    }
 
     const checks = data.checks || task.verificationChecks || [];
     const checkList = document.createElement("div");
@@ -605,7 +692,7 @@
       root.append(note);
     }
 
-    if (task.artifact && task.verificationSource === "deterministic-artifact" &&
+    if (task.artifact && ["deterministic-artifact", "reference-backed"].includes(task.verificationSource) &&
         task.verification === "PASS" && task.captureStatus === "NOT_ATTEMPTED" &&
         options.authorizationId) {
       const capture = document.createElement("button");
@@ -1093,10 +1180,10 @@
     if (!authorizationId) throw new Error("Select an authorization ID in the Payment session first.");
     const payload = await readArtifactForm();
     if (!/^(?:0|[1-9]\d{0,2})\.\d{2}$/.test(payload.amount) || Number(payload.amount) <= 0) {
-      throw new Error("Enter a positive task amount, such as 15.00, before running the agent workflow.");
+      throw new Error("Enter a positive task amount, such as 15.00, before processing the artifact workflow.");
     }
     if (!confirm(
-      "Run the bounded agent workflow for sandbox authorization " + authorizationId + "?\n\n" +
+      "Process the artifact workflow for sandbox authorization " + authorizationId + "?\n\n" +
       "Artifact: " + payload.fileName + "\nTask amount: $" + payload.amount + "\n\n" +
       "The backend will check the configured structural criteria and save the result. " +
       "A newly recorded PASS task will trigger one PayPal sandbox capture for $" + payload.amount +
@@ -1126,7 +1213,7 @@
         await refreshStatus().catch(() => {});
         renderArtifactResult(saved, { authorizationId });
         showAudit({
-          workflow: "ARTIFACT_AGENT_WORKFLOW",
+          workflow: "ARTIFACT_PROCESSING_WORKFLOW",
           stage: "CAPTURE_RESPONSE_ERROR",
           authorizationId,
           taskId: saved.task.taskId,
@@ -1155,7 +1242,7 @@
     if (saved.reused) {
       message("This artifact task was already recorded. No automatic capture was attempted; inspect the existing task before any separate capture action.", "error");
     } else if (result.paymentOutcome === "CAPTURE_COMPLETED") {
-      message("Agent workflow complete: acceptance criteria passed and the sandbox capture completed. Download the Proof Receipt for the audit trail.", "success");
+      message("Artifact workflow complete: acceptance criteria passed and the sandbox capture completed. Download the Proof Receipt for the audit trail.", "success");
     } else if (result.paymentOutcome === "OUTCOME_UNCERTAIN" || result.task?.captureStatus === "UNKNOWN" || result.task?.captureStatus === "IN_PROGRESS") {
       message("Capture outcome is uncertain. The amount remains reserved; reconcile the existing attempt before any further payment action.", "error");
     } else if (saved.task?.verification === "REVIEW") {
@@ -1166,6 +1253,117 @@
       message(result.message || "PASS was recorded, but no completed capture was confirmed. Inspect the task status before acting.", "error");
     } else {
       message(result.message || "Agent workflow recorded the decision without capture.", "success");
+    }
+  }));
+
+  async function readReferenceFile(inputId, label) {
+    const file = $(inputId).files && $(inputId).files[0];
+    if (!file) throw new Error("Choose the " + label + " file first.");
+    if (file.size > 20 * 1024) throw new Error(label + " must be no larger than 20 KB.");
+    const format = file.name.toLowerCase().split(".").pop();
+    if (!["json", "csv"].includes(format)) throw new Error(label + " must be a JSON or CSV file.");
+    return { fileName: file.name, format, content: await file.text() };
+  }
+
+  $("createReferenceContract").addEventListener("click", () => action(async () => {
+    const authorizationId = $("authorizationId").value.trim();
+    if (!authorizationId) throw new Error("Select an authorization ID in the Payment session first.");
+    const source = await readReferenceFile("referenceSourceFile", "buyer source");
+    const amount = $("referenceAmount").value.trim();
+    if (!/^(?:0|[1-9]\d{0,2})\.\d{2}$/.test(amount) || Number(amount) <= 0) {
+      throw new Error("Enter a positive contract amount, such as 10.00.");
+    }
+    const contract = {
+      keyField: $("referenceKeyField").value.trim(),
+      preserveFields: splitFields("referencePreserveFields"),
+      derivedFields: [{
+        field: $("referenceFormulaField").value.trim(),
+        operation: $("referenceFormulaOperation").value,
+        inputs: [
+          $("referenceFormulaInputA").value.trim(),
+          $("referenceFormulaInputB").value.trim()
+        ]
+      }]
+    };
+    const data = await api(
+      "/api/authorizations/" + encodeURIComponent(authorizationId) + "/reference-contracts",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: $("referenceTitle").value.trim(),
+          amount,
+          sourceFileName: source.fileName,
+          sourceFormat: source.format,
+          sourceContent: source.content,
+          contract
+        })
+      }
+    );
+    activeAuthorizationId = authorizationId;
+    activeReferenceContract = {
+      authorizationId,
+      contractId: data.contract.contractId,
+      title: data.contract.title,
+      amount: data.contract.amount,
+      sourceArtifact: data.contract.sourceArtifact,
+      criteria: data.contract.criteria,
+      status: data.contract.status
+    };
+    const root = $("referenceContractResult");
+    root.replaceChildren();
+    const title = document.createElement("h3");
+    title.textContent = "Contract frozen · " + data.contract.status;
+    title.className = "pass";
+    const details = document.createElement("p");
+    details.textContent = "Contract ID: " + data.contract.contractId +
+      " · Amount: $" + data.contract.amount +
+      " · Buyer records: " + data.contract.sourceArtifact.recordCount;
+    const digest = document.createElement("p");
+    digest.className = "artifact-meta";
+    digest.textContent = "Buyer source SHA-256: " + data.contract.sourceArtifact.sha256;
+    root.append(title, details, digest);
+    $("referenceResult").textContent = "Contract ready. Choose the worker's output file and submit it for independent verification.";
+    showAudit(data);
+    message(data.reused ? "Existing identical contract loaded." : "Buyer contract created and frozen before worker submission.", "success");
+  }));
+
+  $("submitReferenceOutput").addEventListener("click", () => action(async () => {
+    if (!activeReferenceContract) throw new Error("Create a buyer-approved reference contract first.");
+    const authorizationId = $("authorizationId").value.trim();
+    if (authorizationId !== activeReferenceContract.authorizationId) {
+      throw new Error("The selected authorization differs from the authorization holding this contract.");
+    }
+    const output = await readReferenceFile("referenceOutputFile", "worker output");
+    const data = await api(
+      "/api/authorizations/" + encodeURIComponent(authorizationId) +
+        "/reference-contracts/" + encodeURIComponent(activeReferenceContract.contractId) + "/submit",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          outputFileName: output.fileName,
+          outputFormat: output.format,
+          outputContent: output.content
+        })
+      }
+    );
+    renderArtifactResult(data, { authorizationId });
+    $("referenceResult").replaceChildren();
+    const status = document.createElement("h3");
+    status.textContent = "Independent verification · " + data.task.verification;
+    status.className = data.task.verification === "PASS" ? "pass" :
+      data.task.verification === "REVIEW" ? "review" : "fail";
+    const note = document.createElement("p");
+    note.textContent = data.message;
+    $("referenceResult").append(status, note);
+    showAudit(data);
+    await refreshStatus();
+    renderArtifactResult(data, { authorizationId });
+    if (data.task.verification === "PASS") {
+      message("Independent checks passed. Inspect the evidence and explicitly confirm capture when ready.", "success");
+    } else if (data.task.verification === "REVIEW") {
+      message("Worker output needs review. No capture was attempted.", "error");
+    } else {
+      message("Independent verification rejected the worker output. No capture was attempted.", "error");
     }
   }));
 

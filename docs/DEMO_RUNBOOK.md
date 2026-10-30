@@ -30,7 +30,7 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The server accepts only loo
 4. Explain that this preview can call Groq, but does not call PayPal payment endpoints. Do not confuse a Groq API call with a payment.
 5. Confirm Task C is blocked because its conclusion is missing. If Task A returns REVIEW, explain that this is the intentional fail-closed path.
 
-## Real artifact verification and bounded agent workflow
+## Structural artifact verification
 
 1. Select a non-sensitive `.json` or `.csv` file up to 20 KB. JSON must be one object or an array of objects. CSV must have a header row with unique, non-empty column names.
 2. Configure required fields, an optional unique field, optional numeric fields, and the minimum record count.
@@ -39,15 +39,34 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The server accepts only loo
 5. Only a recorded PASS artifact task displays **Capture verified task**. Confirm the amount before continuing. The backend rechecks live authorization status, budget, unresolved captures, and duplicate attempts. FAIL/REVIEW tasks cannot be captured through this route.
 6. Download its Proof Receipt. Upload the receipt JSON to **Verify receipt integrity**. Supply the original artifact file too if you want to compare its raw bytes to the recorded artifact digest.
 
-### One-click automation demo
+### One-click bounded automation demo
 
-1. Use a fresh authorized sandbox session and the same non-sensitive artifact. Configure the acceptance rules and amount, then click **Run agent workflow · capture only on PASS**.
+1. Use a fresh authorized sandbox session and the same non-sensitive artifact. Configure the acceptance rules and amount, then click **Process artifact · capture only on PASS**.
 2. Read the confirmation carefully: it names the authorization, artifact, amount, and states that a newly recorded PASS can trigger one sandbox capture. This is the explicit operator consent boundary.
 3. On a newly recorded PASS, the dashboard chains verification, task persistence, and one capture request. It then shows the task result and Proof Receipt. The backend's existing live-status, budget, unresolved-capture, and duplicate-attempt checks still govern the capture.
 4. REVIEW and FAIL are recorded without capture. If the artifact/task was already recorded, the workflow does not auto-capture it again. Use the separate capture control only after inspecting the existing record.
 5. If the capture response cannot be confirmed, stop. Refresh status and reconcile the existing attempt; do not blindly re-run the workflow.
 
-These checks validate structure and configured rules; they do not establish that values or claims are factually true. Receipt hashes are integrity checks, not a trusted signature or truth guarantee. This artifact workflow uses explicit structural rules; it is not a general-purpose autonomous agent and does not give an LLM access to payment tools.
+These structural checks validate only the configured rules. They do not establish factual truth or trusted provenance.
+
+## Independent data verification demo
+
+This is the strongest proof-of-work workflow. Use synthetic files from the repository:
+
+- Buyer source: [examples/buyer-invoice-source.json](../examples/buyer-invoice-source.json)
+- Deliberately incorrect worker output: [examples/worker-invoice-output-fail.json](../examples/worker-invoice-output-fail.json)
+- Correct worker output: [examples/worker-invoice-output-pass.json](../examples/worker-invoice-output-pass.json)
+
+1. Create and authorize a fresh PayPal sandbox order. Use a new authorization with enough remaining budget for the task.
+2. In **Independent data verification**, load the buyer source file. Keep the example contract settings: key `id`, preserved fields `quantity,unitPrice,description`, and `lineTotal = quantity × unitPrice`. Enter a task amount such as $10.00.
+3. Click **Create and freeze contract**. This stores the parsed buyer source rows, source digest, amount, and rules before worker output is submitted. The contract accepts one submission.
+4. Select the failing worker output fixture and click **Verify worker output**. The expected result is FAIL because INV-1001 has an incorrect lineTotal. Show that the backend computed the expected value from the stored buyer source and made no PayPal request.
+5. Change the task description/title to a new contract version, for example `Invoice reconciliation - corrected submission`, and create a second contract using the same buyer source, amount, and rules. The title creates a distinct contract ID. Do not attempt to reuse the failed contract.
+6. Submit the passing output fixture. The expected result is PASS with the key coverage, preserved-field, and formula checks shown.
+7. Inspect the Proof Receipt and explicitly click **Capture verified task** only after reviewing the $10.00 amount. Verify the sandbox capture ID and status, then refresh authorization state.
+8. Explain the boundary honestly: this checks the contracted data transformation, not the authenticity of the buyer source or unrelated claims. The source rows are stored in local JSON state; use only synthetic, non-sensitive files.
+
+The reference verification and submission routes make no payment calls. Only the separate capture action can move funds, and only for a stored PASS task after backend checks.
 
 ## New product flows: simulator, review, and receipts
 
@@ -94,15 +113,15 @@ The AI model can return REVIEW for Task A, in which case the system must not cap
 
 ## 90-second judge narration
 
-**0–15s — Problem:** “An agent can produce multiple pieces of work, but payment should depend on verified outcomes, not merely on a model saying it finished.”
+**0–15s — Problem:** “A worker's own success flag is not proof. Paying for digital work needs checks tied to what the buyer originally requested.”
 
-**15–30s — Idea:** “Pay-on-Proof separates evidence checking from payment execution. Deterministic rules are hard gates. Groq is optional and advisory; it never receives payment tools.”
+**15–30s — Contract:** “The buyer freezes a source dataset, required fields, and calculation rules before the output is submitted. The backend stores that contract.”
 
-**30–50s — Preview:** “Here are the task criteria and synthetic evidence. Task C is intentionally incomplete. The preview can ask Groq to review Task A, but the preview has zero payment side effects.”
+**30–50s — Attack:** “This output has valid JSON but a fabricated line total. Our verifier recomputes the amount from the buyer source and rejects the incorrect result. The failed task cannot be captured.”
 
-**50–75s — Payment:** “For a fresh sandbox authorization, the backend creates a partial capture only for a PASS. A FAIL or REVIEW does not trigger a capture. Each capture is tied to a task record and a stable idempotency key.”
+**50–70s — Passing work:** “A corrected output passes the same buyer-approved contract checks: every source record is present once, protected fields are unchanged, and calculated values match the formula.”
 
-**75–90s — Safety and impact:** “The demo records provenance and provider status, treats ambiguous capture outcomes as unresolved, and requires reconciliation before voiding. This is a sandbox proof of concept; production use would need authenticated users and durable transactional storage.”
+**70–90s — Payment and limits:** “Only then can an operator confirm a PayPal sandbox partial capture. The Proof Receipt records the source and output hashes, checks, decision, and provider result. The verifier is narrow and deterministic; this prototype does not authenticate source provenance or pay a separate contractor account.”
 
 ## Final checklist
 
@@ -119,6 +138,10 @@ The AI model can return REVIEW for Task A, in which case the system must not cap
 - [ ] Any human approval was intentional, reviewed, and sandbox-only; uncertain outcomes were reconciled.
 - [ ] Proof Receipts have accurate capture IDs/status; simulation receipts are not presented as real transactions.
 - [ ] Artifact preview reports zero payment side effects and malformed files never produce PASS.
+- [ ] Reference-backed demo shows the deliberately wrong invoice total rejected and the corrected output accepted.
+- [ ] Buyer source and contract are created before worker output; a failed contract is not reused for a second submission.
+- [ ] No claim is made that the reference verifier authenticates the source or validates arbitrary business truth.
+- [ ] No claim is made that this build pays a separate worker/contractor payee.
 - [ ] Artifact capture is attempted only from a saved PASS task after explicit confirmation; FAIL/REVIEW remains uncaptured.
 - [ ] Receipt verifier accepts intact receipts and rejects tampered evidence, criteria, and receipt hashes.
 - [ ] README, submission brief, architecture, and this demo sequence match the code that will be judged.

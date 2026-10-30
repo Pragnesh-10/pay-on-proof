@@ -2,108 +2,115 @@
 
 ## One-line pitch
 
-**Pay-on-Proof makes agentic work payable by evidence:** verify each task against acceptance criteria, then capture only the amount assigned to tasks that pass.
+**Pay-on-Proof connects independently checked work to task-level PayPal payments:** a buyer freezes the source data and acceptance contract before submission; the backend verifies the returned output and permits a partial capture only for a passing task.
 
-## Hackathon track positioning
+## Hackathon positioning
 
-**Recommended primary category: AI Agents or Automation.**
+The PayPal AI Hackathon does not prescribe product tracks. The most defensible current award positioning is **Best Use of PayPal + AI**. The existing controlled demo uses Groq for one narrow advisory semantic review, while backend rules control payment execution. The new reference-backed data workflow adds a stronger, deterministic proof path.
 
-The product demonstrates a workflow that can take a payment action on a user's behalf after a verified task decision: the backend evaluates task evidence, enforces deterministic gates and payment limits, then can submit a PayPal sandbox partial capture for eligible work. This is more than returning a recommendation—the workflow can transact. The AI model is deliberately not given payment tools or credentials.
-
-**Secondary category: Business Solutions.** A marketplace, service platform, or business could use this pattern to pay for staged work such as generated reports, data validation, or other deliverables with explicit acceptance criteria.
-
-**Supporting category: Money Movement Experiences.** Pay-on-Proof demonstrates per-task partial captures and release of unused authorization, but its main differentiation is the verification-to-payment control layer rather than a novel consumer transfer method.
-
-The current implementation remains a sandbox prototype. The custom artifact path supports payment-free preview, save-only, and a bounded one-click agent workflow. The workflow requires explicit confirmation, verifies and records the artifact, then attempts a single sandbox capture only for a newly recorded PASS. REVIEW/FAIL do not capture, and a previously recorded task is never auto-captured again. The controlled demo can also process its predefined task bundle after the user starts the run. Avoid claiming fully autonomous general-purpose agents or production readiness.
+Do not claim a fully autonomous worker agent or a complete agentic marketplace yet. The current project does not generate the worker's deliverable with an AI agent, and the payment demo does not disburse funds to a separate contractor payee. Those remain future integrations.
 
 ## The problem
 
-Agentic systems can produce multiple pieces of work, but payment can be difficult to align with the quality or completeness of each result. Paying the full amount before validation shifts the risk to the buyer; paying the full amount only after everything is complete can be too coarse for work delivered in stages. The core product question is: **how can a payment system make a task-level decision auditable without giving an AI model authority over money?**
+A buyer needs a way to pay for submitted work without relying only on the worker's statement that the task passed. Milestone payment tools already support staged work and human approval. Pay-on-Proof explores a narrower automation layer: evaluate a concrete deliverable against a buyer-approved contract, keep uncertain cases out of automatic payment, and record the decision and payment outcome.
 
-This is the problem framing for this prototype, not a claim that all existing payment workflows behave this way.
+This is a product hypothesis for structured digital work. The project has not yet measured dispute reduction, faster settlement, or business productivity gains.
 
 ## The solution
 
-Pay-on-Proof uses a PayPal sandbox authorization as a bounded payment envelope, then evaluates a small, controlled task bundle:
+Pay-on-Proof combines three parts:
+
+1. **Buyer-approved task contract.** The buyer uploads a source dataset and freezes the amount, key field, fields that must remain unchanged, and deterministic formula rules on a local PayPal sandbox authorization.
+2. **Independent output verification.** The worker submits a JSON or CSV result separately. The backend uses the previously stored source rows and contract. It checks unique record keys, complete key coverage, unchanged source fields, and calculated numeric outputs. It does not accept worker-supplied `passed: true` flags.
+3. **Payment policy and Proof Receipt.** Verification returns PASS or FAIL; unparseable output returns REVIEW. Submission itself never calls PayPal. Only a stored PASS task is eligible for a separate, explicitly confirmed partial capture after live authorization, budget, duplicate-attempt, and unresolved-capture checks.
+
+### Worked example: invoice line reconciliation
+
+The demo contract uses buyer-provided invoice rows with `id`, `quantity`, `unitPrice`, and `description`. It freezes `id`, `quantity`, `unitPrice`, and `description` as preserved fields, then checks that the worker's `lineTotal` equals `quantity × unitPrice` for every source record.
+
+The repository includes:
+- `examples/buyer-invoice-source.json`
+- `examples/worker-invoice-output-pass.json`
+- `examples/worker-invoice-output-fail.json`
+
+The FAIL fixture contains an incorrect total. It should be rejected even though its JSON structure is valid.
+
+This proves only the configured data-reconciliation rules. It does not authenticate the buyer's source file, prove arbitrary claims, or verify tasks outside the contracted fields and formulas.
+
+## Payment demonstration
+
+A separate controlled integration demo creates a USD 50 PayPal sandbox authorization and runs three synthetic tasks:
 
 | Task | Evidence rule | Amount | Intended result |
 |---|---|---:|---|
-| A — Generate a report | Required fields plus optional Groq semantic review | $15 | PASS in the expected demo path |
-| B — Validate results | Three explicit checks must all pass | $20 | PASS |
-| C — Produce a summary | A non-empty conclusion is required | $10 | FAIL because the conclusion is missing |
+| A — Generate a report | Non-empty title and summary; optional Groq semantic review | $15 | PASS only if required checks and optional semantic review pass |
+| B — Validate results | Three seeded boolean checks | $20 | PASS in the controlled fixture |
+| C — Produce a summary | Non-empty conclusion | $10 | FAIL because the conclusion is absent |
 
-The intended full run captures $35 using two non-final partial captures and then releases the unused $15 authorization. The AI response is not guaranteed, so Task A can instead return REVIEW; in that case the backend must not capture Task A.
+The intended synthetic path captures $35 using two non-final partial captures, then voids the unused $15 authorization. This is not a refund. These seeded tasks demonstrate payment orchestration and recovery; they are not independent evidence that real work was correctly performed.
 
-**Important:** voiding the unused authorization is not a refund. A capture that has already completed is not reversed by voiding the remainder.
+## What makes this different
 
-## Why this design
+- The buyer's source dataset and acceptance rules are stored before the worker output is submitted.
+- The output route does not accept replacement source data or replacement acceptance rules.
+- The verifier recalculates contracted fields instead of trusting a worker's success flags.
+- A failed or ambiguous submission does not trigger payment.
+- The backend keeps financial execution separate from AI output.
+- Proof Receipts preserve the source/output digests, criteria, checks, decision, payment status, and event history.
 
-- **Deterministic hard gates first.** Required fields and explicit checks are evaluated before any model request.
-- **AI is advisory, not an operator.** Groq can assess whether a report summary meaningfully communicates a result. It has no PayPal tools and cannot execute captures.
-- **Fail closed.** FAIL, REVIEW, malformed output, provider failure, or ambiguity never qualifies that task for capture.
-- **Task-level partial capture.** A passing task can be captured without finalizing the full authorization.
-- **Payment-provider reconciliation.** PayPal remains the authority for authorization/capture status. Ambiguous capture attempts stay reserved and can be reconciled with their original idempotency key.
-- **Proof Receipts.** Each task can be exported with canonicalized evidence and acceptance-criteria SHA-256 hashes, a receipt hash, verifier provenance, human-review outcome, payment status, and event history. Hashes detect snapshot changes; they do not establish truth.
-- **Human review for ambiguity.** A REVIEW task can be explicitly approved or rejected with notes. Approval re-runs deterministic requirements, checks current PayPal authorization state and budget, refuses unresolved earlier captures, records the reviewer decision, and uses a stable request ID for a single capture attempt. Rejection makes no capture call.
-- **Three-scenario simulator.** PASS, REVIEW, and FAIL use synthetic fixtures and are explicitly simulation-only. They never call PayPal, and their receipts are marked non-authoritative.
-- **Inspectable audit trail.** The dashboard shows task evidence, acceptance criteria, verification decision, source/model provenance, capture status, review history, receipt downloads, and response payloads.
+We do not claim that partial capture, milestone payments, or escrow-like workflows are new. PayPal already supports authorization and capture, and freelance platforms already support milestone approval. The differentiation being tested is the buyer-reference verification step and its connection to a guarded task-level capture.
 
 ## Architecture at a glance
 
-- **Browser:** lightweight dashboard for preview, checkout, authorization, task run, reconciliation, status refresh, and void.
-- **Node.js + Express:** owns payment credentials, decision gating, API calls, state transitions, and persisted audit records.
-- **Deterministic verifier:** validates the controlled task schema and explicit task checks.
-- **Groq API:** optional semantic reviewer for Task A only. Structured output is validated again by the application.
-- **PayPal sandbox:** handles buyer approval, authorization, partial captures, authoritative status lookups, and voiding.
-- **Local JSON state:** records orders, authorization state, capture attempts, task decisions, and identifiers for this single-process demonstration.
+- **Browser:** dashboard for authorization, contract creation, worker-output submission, verification, explicit capture, reconciliation, and receipts.
+- **Node.js + Express:** owns credentials, state transitions, verification routes, capture policy, and audit records.
+- **Reference verifier:** parses bounded JSON/CSV source and output data; compares keys and preserved fields; recomputes declared arithmetic formulas.
+- **Controlled task verifier:** deterministic checks plus optional Groq semantic review for Task A in the seeded payment demo only.
+- **PayPal sandbox:** order approval, authorization, partial captures, status refresh, reconciliation, and voiding.
+- **Local JSON state:** stores authorizations, attempts, contracts, parsed buyer source rows, task decisions, and identifiers for this single-process local demonstration.
 
-See [Architecture](ARCHITECTURE.md) for the sequence and trust boundaries.
+See [Architecture](ARCHITECTURE.md) for sequence and trust boundaries.
 
 ## What is implemented
 
-- $50 USD authorization order with a single purchase unit.
-- Explicit order approval and authorization steps; checkout return does not itself imply authorization.
-- Deterministic and optional AI-assisted verification.
-- Payment-free verifier preview and PASS / REVIEW / FAIL simulator with zero payment side effects.
-- Downloadable single-task and bulk Proof Receipts with SHA-256 hashes and explicit simulation labeling.
-- Human-review queue with reviewer notes, deterministic re-checks, live authorization/budget checks, and audit events.
-- Partial capture for PASS tasks with `final_capture: false`.
-- A single-use demo guard per authorization.
-- Budget checks, capture idempotency IDs, uncertain-outcome tracking, reconciliation, and void verification.
-- Automated tests and a GitHub Actions test workflow.
-- A live Groq smoke-test command that does not call PayPal payment endpoints.
-
-## User-supplied artifact workflow
-
-A user can upload a bounded JSON or CSV artifact and define structural acceptance rules: required fields, one optional unique field, optional numeric fields, and a minimum record count. The server records the raw artifact digest and a three-row preview, and returns explicit per-rule results. Malformed artifacts route to REVIEW. A preview receipt is labelled simulation-only and has no payment side effects.
-
-A verified artifact can be attached to a selected local PayPal sandbox authorization at a stated task amount. Saving is separate from capturing. The capture endpoint requires the stored artifact task to have PASS, checks live authorization status, available budget, unresolved attempts, and duplicate task captures, persists a stable request ID before the provider call, and returns the task receipt. FAIL and REVIEW cannot be captured through this route.
-
-The receipt verifier recomputes the evidence, acceptance-criteria, and receipt hashes. When the original artifact bytes are supplied, it checks their raw SHA-256 digest too. This detects tampering; it does not prove claims in the artifact are factually true or establish an authenticated issuer.
+- USD 50 sandbox order with intent `AUTHORIZE`, buyer approval, and explicit authorization.
+- Reference-contract creation on an active authorization. Source data and criteria are stored before output submission.
+- One worker-output submission per contract.
+- Independent checks for unique keys, record count, complete source-key coverage, preserved source fields, and formula-derived numeric fields.
+- PASS/FAIL decisions for parseable output; malformed output routes to REVIEW.
+- Stored reference-backed tasks are eligible for the existing explicit PASS-only capture endpoint.
+- Existing controlled demo with optional Groq review for Task A, deterministic fixture checks for B/C, and partial capture.
+- Capture idempotency IDs, pre-call persistence, uncertain-outcome tracking, reconciliation, and void safeguards.
+- Human-review queue, scenario simulator, Proof Receipts, and receipt hash validation.
+- Automated unit and mock-provider integration tests.
 
 ## Evidence and honest limits
 
-**Observed during development:** the live Groq smoke test returned `PASS` for the synthetic sentence “Revenue increased by 8% compared with the previous quarter,” with model `openai/gpt-oss-20b` and reported latency of 771 ms. That result demonstrates connectivity and decision parsing for that request only; it is not a model-accuracy benchmark.
+The reference verifier is deterministic, not AI. Its assurance is bounded to the buyer source rows and contract rules it receives. A buyer who supplies false source data or weak acceptance criteria can still create a bad contract. The prototype has not authenticated the buyer identity or source-system provenance.
 
-**Not established by that result:** broad semantic accuracy, factual truth of report claims, production payment safety under concurrent processes, or reliability under all PayPal/Groq errors. The evidence is synthetic. Expected demo outcomes are controlled examples, not user-study results or performance claims.
+The optional Groq reviewer handles one narrow semantic check in the controlled report task. It does not prove factual truth and has no payment tools. The current synthetic evaluation fixture set is not a representative benchmark; no production accuracy percentage is claimed.
+
+The current PayPal order captures to the merchant/payee associated with that order. This prototype does not implement a separate worker payee, seller onboarding, marketplace split, or payout/disbursement flow. Therefore it demonstrates conditional capture, not a complete buyer-to-contractor settlement product.
+
+PayPal authorization timing also constrains long-running jobs. The product does not yet implement expiry monitoring, reauthorization, or a durable long-running payment lifecycle.
 
 ## Scope and security boundary
 
-This is a **hackathon sandbox prototype**, not a production payment service.
+This is a **local PayPal sandbox prototype**, not a production payment service.
 
-- Use PayPal sandbox credentials only.
-- Keep the server local. API routes do not implement user authentication or authorization; reviewer names are unverified audit labels only.
-- The JSON state and in-process mutation queue are not safe for multi-instance deployments.
-- Do not submit real personal, financial, or confidential work evidence.
-- If a capture result is uncertain, do not guess. Reconcile the exact capture attempt and review PayPal status before voiding or starting another capture. Human review does not bypass unresolved-capture safeguards.
-- Proof Receipt hashes detect changes to recorded snapshots, not dishonest or false evidence. Human review does not bypass unresolved-capture safeguards.
-- Proof Receipt hashes detect changes to recorded snapshots, not dishonest or false evidence.
-- A resolved run that stopped mid-sequence is not resumed automatically.
+- Use sandbox credentials only. Keep `.env` out of Git and out of submission archives. Rotate any key that has been included in a shared archive or chat.
+- Keep the server on loopback. API endpoints do not implement authentication or authorization; reviewer labels are not authenticated identities.
+- The JSON state and in-process mutation queue are single-process demo storage, not safe for multi-instance payment concurrency.
+- Buyer source rows are stored in the local JSON state file so the verifier can compare future submissions. Use synthetic or non-sensitive evidence only.
+- Reference checks do not authenticate who supplied the buyer source, do not prove external facts, and do not cover unconfigured fields.
+- Proof Receipt hashes detect changes to recorded snapshots; they are not digital signatures and do not prove truth.
+- An uncertain capture reserves the amount. Reconcile the exact attempt before any further capture or void.
+- A successful void releases only the unused authorization remainder; it does not reverse completed captures.
 
-## Next steps beyond the hackathon
+## Next steps
 
-1. Replace local JSON storage with a transactional database and durable job/outbox model.
-2. Add authenticated users, per-order authorization, audit access control, CSRF/rate-limit defenses where relevant, and secret management.
-3. Model capture transitions explicitly and test against PayPal sandbox simulations for timeouts, duplicates, pending results, and provider errors.
-4. Build a reviewed acceptance-criteria schema and an evidence provenance layer tied to source artifacts.
-5. Evaluate AI decisions on a versioned dataset with human-labelled ground truth and track false-pass/false-fail rates before using the approach beyond a demo.
+1. Add a genuine worker agent that produces the deliverable from the buyer contract; keep the verifier and payment executor separate.
+2. Add trusted source connectors or signed buyer-source provenance and expand the deterministic verifier with domain-specific rules.
+3. Evaluate verifier decisions on human-reviewed adversarial fixtures, including false-pass and false-fail rates.
+4. Explore PayPal multiparty/seller onboarding and payout products for a real worker payee flow, subject to partner eligibility and approval.
+5. Add authenticated users, role-based authorization, transactional storage, durable jobs/outbox, webhook handling, and authorization-expiry/re-authorization policies before any production use.

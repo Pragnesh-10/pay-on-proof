@@ -4,16 +4,20 @@
 
 ```mermaid
 flowchart LR
-  U[Demo operator] --> UI[Browser dashboard]
+  BUYER[Buyer / demo operator] --> UI[Browser dashboard]
   UI --> API[Node.js / Express API]
-  API --> GATE[Decision gate]
-  GATE --> DET[Deterministic hard checks]
-  GATE -. Task A semantic review only .-> GROQ[Groq Chat Completions]
-  API --> PAYPAL[PayPal sandbox]
+  API --> CONTRACT[Reference contract service]
+  CONTRACT --> SOURCE[(Buyer source + frozen rules)]
+  WORKER[Worker output submission] --> API
+  API --> REF[Reference-backed verifier]
+  SOURCE --> REF
+  REF --> POLICY[Backend payment policy]
+  POLICY --> PAYPAL[PayPal sandbox]
+  API --> DET[Controlled task verifier]
+  DET -. Task A only .-> GROQ[Groq semantic reviewer]
   API --> SIM[Scenario simulator]
-  API --> ARTIFACT[JSON / CSV artifact verifier]
-  ARTIFACT --> GATE
-  API --> RECEIPT[Proof Receipt + SHA-256 + verifier]
+  API --> STRUCT[Structural artifact verifier]
+  API --> RECEIPT[Proof Receipt + SHA-256]
   UI --> REVIEW[Human review queue]
   REVIEW --> API
   API <--> STATE[(Local JSON state)]
@@ -21,62 +25,88 @@ flowchart LR
   API --> UI
 ```
 
-## End-to-end flow
+## Reference-backed data workflow
 
-1. **Create order:** the backend creates one USD 50 PayPal order with intent `AUTHORIZE`. The browser opens the returned PayPal approval link.
-2. **Buyer approval:** the sandbox buyer approves the order. Returning to the local site is not treated as proof of authorization.
-3. **Authorize:** the operator submits the order ID to the backend, which calls the Orders API authorize endpoint and persists the authorization ID.
-4. **Preview (optional):** the preview endpoint evaluates the sample tasks but does not call PayPal payment endpoints. It may call Groq if configured.
-5. **Evaluate tasks:** the deterministic verifier checks required structure. Task A can then receive an advisory semantic review from Groq. Tasks B and C use explicit deterministic checks.
-6. **Gate capture:** only `PASS` proceeds to a partial capture. `FAIL` and `REVIEW` have no capture attempt. Each capture uses a stable `PayPal-Request-Id` and `final_capture: false`.
-7. **Reconcile:** ambiguous attempts remain reserved. The reconciliation endpoint checks a known capture ID or replays the exact capture request with its original request ID and payload.
-8. **Human review:** a recorded REVIEW task can be approved or rejected with reviewer notes. Approval re-runs deterministic hard gates, checks current PayPal authorization and budget, refuses if prior captures are unresolved, then persists the reviewer event and stable capture attempt before calling PayPal. Rejection records the reviewer decision without a capture request.
-9. **Proof Receipt:** the receipt API exports evidence, acceptance criteria, verifier provenance, review decision, payment status, and events. Canonicalized SHA-256 hashes make snapshot changes detectable; they do not prove evidence truth.
-10. **Scenario simulator:** PASS, REVIEW, and FAIL use synthetic evidence, report zero actual capture, and never call PayPal payment endpoints.
-11. **Artifact path:** uploaded JSON/CSV bytes are size-limited and hashed; structural checks cover required fields, uniqueness, numeric values, and minimum rows. Malformed input routes to REVIEW. The preview endpoint has no payment side effects.
-12. **Saved artifact task:** the operator can persist the verification result and criteria on a selected local sandbox authorization. A separate capture endpoint accepts only a recorded PASS artifact task, then rechecks live provider status, amount budget, unresolved captures, and prior attempts before recording a stable request ID and calling PayPal.
-13. **Receipt validation:** an independent verifier recomputes evidence, criteria, and receipt hashes. If the original artifact bytes are supplied, it also checks their digest.
-14. **Verify and close:** refresh authorization from PayPal. After all capture attempts are resolved, the operator can explicitly request a void of the unused authorization remainder.
+The reference-backed flow is the strongest current evidence-verification example. It is deliberately narrow: data reconciliation with a buyer-provided source and deterministic numeric formulas.
+
+1. **Authorize:** the buyer creates and authorizes a PayPal sandbox order. The contract route requires an active, non-voided local authorization.
+2. **Freeze the contract:** the buyer submits a source JSON/CSV file, task amount, unique key field, preserved fields, and one or more deterministic arithmetic formulas. The backend validates the source rows, unique keys, required fields, numeric formula inputs, and formula domains before storing the contract.
+3. **Persist the source:** the local authorization record stores normalized source rows, source metadata/digest, amount, contract criteria, and contract status. The API response returns metadata and criteria, not the stored source rows.
+4. **Submit output:** the worker submits a separate JSON/CSV output. The route loads the source rows and criteria from the stored contract. It does not accept replacement source data or contract criteria from the worker request.
+5. **Verify:** the reference verifier checks source and output key uniqueness, record count, exact key coverage, preserved source values, and derived numeric values computed from buyer-source fields. Parse errors return REVIEW; failed comparisons return FAIL.
+6. **Record once:** a contract accepts one worker submission. The resulting task and checks are persisted and included in a Proof Receipt. A revised attempt needs a newly approved contract.
+7. **Capture separately:** submission never calls PayPal. A recorded PASS is eligible for the existing capture endpoint. The operator explicitly requests capture; backend checks authorization status, amount budget, unresolved attempts, duplicate task attempts, and void state before calling PayPal.
+
+The verifier assumes the buyer-provided source and contract are trustworthy. It does not authenticate their issuer or validate claims outside the selected fields and formula rules.
+
+## Controlled payment demo
+
+1. The backend creates a USD 50 order with intent `AUTHORIZE`; checkout return is not treated as approval.
+2. A sandbox Personal buyer approves the order.
+3. The operator explicitly authorizes the order; the authorization ID is stored locally.
+4. The controlled three-task fixture is evaluated. Task A checks required report fields and optionally receives Groq semantic review. Task B checks three seeded boolean values. Task C checks for a non-empty conclusion.
+5. Only a final PASS can reach the partial capture route. Captures use `final_capture: false` and stable `PayPal-Request-Id` values. FAIL and REVIEW do not trigger capture.
+6. The operator refreshes status and can void only the unused authorization remainder after all capture attempts resolve.
+
+The controlled task fixtures demonstrate payment orchestration and recovery, not independent proof of actual business work.
+
+## Other product flows
+
+- **Structural artifact verifier:** accepts bounded JSON/CSV output and checks configured required fields, uniqueness, numeric values, and row count. This is useful for structural validation but does not establish domain correctness.
+- **Groq reviewer:** advisory semantic check for Task A only. The model has no PayPal tools; its structured response is revalidated by the backend.
+- **Human review:** recorded REVIEW tasks can be approved or rejected with notes. Approval re-runs the relevant deterministic gate and checks current PayPal status, budget, and unresolved captures. Reviewer identity is not authenticated.
+- **Scenario simulator:** uses synthetic PASS/REVIEW/FAIL fixtures, marks receipts SIMULATION_ONLY, and never calls PayPal payment endpoints.
+- **Proof Receipt:** records evidence, acceptance criteria, verifier provenance/checks, review outcome, payment status, and events. SHA-256 hashes detect changes to recorded snapshots; they do not prove truth or authenticated provenance.
 
 ## Trust boundaries
 
 | Component | Trust and responsibility |
 |---|---|
-| Browser | Untrusted UI. It can request actions but does not contain PayPal or Groq secrets and does not decide whether to capture. Reviewer identity is not authenticated by this prototype. |
-| Express backend | Holds credentials and enforces state checks, amount limits, idempotency, and the PASS-only capture gate. |
-| Deterministic verifier | Validates explicit structural/business rules. It does not prove natural-language claims are factually true. |
-| Groq | Advisory semantic assessment of Task A evidence. Output is structured and revalidated; it has no payment tools. |
+| Browser | Untrusted UI. It can request actions but cannot contain PayPal/Groq secrets or decide whether a capture is allowed. |
+| Buyer source | Trusted only as an input supplied by the local buyer/operator; the prototype does not authenticate the buyer or verify the external source system. |
+| Frozen reference contract | Stored by the backend before output submission. The worker submission route cannot replace the criteria or source rows. |
+| Worker output | Untrusted. The backend parses it and checks it against the stored buyer source and frozen contract. |
+| Reference verifier | Recomputes key coverage, preserved fields, and configured formulas. It proves only those contracted comparisons. |
+| Structural artifact verifier | Checks structure and configured fields, not factual correctness. |
+| Groq | Advisory semantic assessment of Task A only. Output is structured and revalidated; it has no payment tools. |
+| Express backend | Holds credentials and enforces state checks, amount limits, idempotency, and PASS-only capture gates. |
 | PayPal sandbox | Authoritative external state for order, authorization, capture, and void status. |
-| JSON state | Local audit aid for this single-process demo. It is not a transactional production datastore. |
-| Artifact verifier | Deterministic structural checks against explicit JSON/CSV rules. It does not establish business correctness or factual truth. |
-| Proof Receipt | Hashed snapshot of evidence, criteria, artifact digest, and decisions; the verifier detects changes but does not establish truth or authenticated provenance. |
+| JSON state | Local state and audit aid for this single-process demo. It is not a transactional production datastore. |
+| Proof Receipt | Hashed snapshot of evidence and decisions; hashes detect changes but do not establish truth or authenticated issuer identity. |
 | Scenario simulator | Uses synthetic examples and never calls PayPal; output is hypothetical, not a live verification result. |
 
-## Decision policy
+## Payment decision policy
 
 ```text
-Task evidence
-    |
-    v
-Deterministic hard gate
-    | FAIL ----------------------> No capture
-    | PASS
-    v
-Task A + GROQ_API_KEY?
-    | Yes -> Groq decision
-    |          PASS -> Eligible for capture
-    |          FAIL -> No capture
-    |          REVIEW / error / invalid -> No capture
-    |
-    | No or Task B/C -> deterministic result
-    v
-Capture only when final decision is PASS, or an explicit REVIEW approval passes all backend hard gates
-    |
-    v
-Record provider status; reconcile anything ambiguous
+Buyer source + buyer-approved contract
+                 |
+                 v
+       Freeze in local state
+                 |
+Worker output ---+
+                 |
+                 v
+      Reference-backed verifier
+          | PASS       | FAIL
+          |             +------> Record; no capture
+          | REVIEW/parse error
+          +--------------------> Record; human review; no capture
+                 |
+                 v
+        Explicit capture request
+                 |
+                 v
+   Backend authorization/budget/duplicate/
+   unresolved-capture/void-state checks
+                 |
+                 v
+        PayPal sandbox partial capture
+                 |
+                 v
+        Proof Receipt + audit events
 ```
 
-Eligibility is not itself proof that a capture succeeded. Capture status is recorded from the PayPal response and verified separately.
+An eligible PASS is not itself proof of payment success. The PayPal response and later provider status determine capture state.
 
 ## State and failure handling
 
@@ -84,22 +114,22 @@ Eligibility is not itself proof that a capture succeeded. Capture status is reco
 - Capture attempts are persisted before the outbound capture request.
 - Amounts in `IN_PROGRESS`, `UNKNOWN`, or `PENDING` status remain reserved when calculating available funds.
 - Network errors, timeouts, conflicts, throttling, and server errors are treated conservatively as uncertain.
-- Reconciliation reuses the original idempotency key and request payload or queries a known capture ID. It does not automatically continue a partially completed task sequence. Integration tests simulate a lost provider response and a capture that remains PENDING until the mock provider reports COMPLETED.
+- Reconciliation reuses the original idempotency key and request payload or queries a known capture ID. It does not automatically continue a partially completed task sequence.
 - Void is refused while a capture is unresolved. A successful void releases only the unused authorization remainder, not money already captured.
+- A reference contract is single-submission. Failed or REVIEW submissions are retained; a revised deliverable requires a newly approved contract.
 
 ## Review and receipt policies
 
 - Only an unreviewed task whose original verifier decision is REVIEW can enter the human-review endpoint.
-- Human approval cannot turn a deterministic required-field failure into PASS; the deterministic gate must pass again.
-- Approval queries PayPal for current authorization status and is blocked for a void request, unsupported status, exceeded budget, or any unresolved prior capture.
-- The reviewer decision is persisted before attempting capture. A reviewed task cannot be submitted a second time; uncertain attempts must use reconciliation.
+- Human approval cannot turn deterministic hard-check failures into PASS.
+- Approval queries PayPal for current authorization status and is blocked for void requests, unsupported statuses, exceeded budget, or unresolved prior captures.
+- The reviewer decision is persisted before attempting capture. Uncertain attempts must use reconciliation.
 - Rejections never call PayPal capture endpoints.
-- Review is unauthenticated in this local demo. Reviewer names are unverified audit labels; do not expose this API to a network.
+- Reviewer names are unverified audit labels. Do not expose this API to a network.
 - Startup rejects `HOST` values other than `127.0.0.1` or `::1` while API authentication is absent. This does not protect against a separately configured reverse proxy or tunnel; keep remote access disabled.
 - Simulation receipts use mode SIMULATION_ONLY, payment.authoritative false, and no capture ID.
-- Custom artifact capture is a separate user action and is available only for a persisted artifact task with PASS. Upload and preview routes never call PayPal payment endpoints.
-- The artifact parser accepts only JSON objects/arrays and CSV with unique headers, caps raw text at 20 KB and records at 500, and stores a preview of no more than three rows.
+- Reference contract creation and worker submission do not call PayPal. Only the separate PASS task capture route calls the payment endpoint.
 
 ## Deliberate non-goals
 
-This build does not provide production identity and access management, distributed locking, webhook ingestion, durable multi-instance state, an independently validated truth oracle, generalized arbitrary task execution, or a calibrated AI decision model.
+This build does not provide production identity/access management, distributed locking, webhook ingestion, durable multi-instance state, authenticated buyer-source provenance, generalized arbitrary task execution, a fully autonomous worker agent, a calibrated AI decision model, or a separate contractor payout/disbursement flow.
