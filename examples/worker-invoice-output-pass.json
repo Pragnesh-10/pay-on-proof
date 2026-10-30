@@ -1,0 +1,23 @@
+[
+  {
+    "id": "INV-1001",
+    "quantity": 3,
+    "unitPrice": 12.5,
+    "description": "Widget",
+    "lineTotal": 37.5
+  },
+  {
+    "id": "INV-1002",
+    "quantity": 2,
+    "unitPrice": 7,
+    "description": "Cable",
+    "lineTotal": 14
+  },
+  {
+    "id": "INV-1003",
+    "quantity": 5,
+    "unitPrice": 4.25,
+    "description": "Adapter",
+    "lineTotal": 21.25
+  }
+]
