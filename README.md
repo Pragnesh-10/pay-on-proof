@@ -1,6 +1,6 @@
 # Pay-on-Proof
 
-A PayPal sandbox prototype for **evidence-gated task payments**. Buyers freeze a source dataset and verification contract before work is submitted; the backend checks the returned output against that buyer-controlled reference, then permits a partial capture only for a passing task. This is a hackathon prototype, not a production payment service.
+A PayPal sandbox prototype for **verified digital-work payments and merchant dispute readiness**. Buyers freeze a source dataset and acceptance contract before work is submitted; the backend independently checks the returned output, gates capture on PASS, and prepares transaction-linked evidence notes for eligible PayPal disputes. This is a hackathon prototype, not a production payment service.
 
 > **Prototype status:** hackathon/demo software only. It is not a production payment service. Use sandbox credentials only.
 
@@ -22,6 +22,8 @@ Do not claim a fully autonomous worker agent or a complete agentic marketplace y
 - Provides a verification preview endpoint and dashboard button that run the verifier without contacting PayPal's payment endpoints. If AI is configured, the preview still makes a Groq API request and may incur usage cost.
 - Offers a PASS / REVIEW / FAIL simulator using synthetic evidence; scenarios are payment-free and explicitly labelled as simulations.
 - Generates downloadable Proof Receipts with evidence, criteria, verifier provenance, review decision, payment outcome, event history, and SHA-256 hashes.
+- Prepares a dispute evidence package for a completed task capture. It fetches the PayPal dispute details, requires an exact seller-transaction/capture-ID match, records requested evidence types and response deadline, and creates a merchant-review note draft.
+- Supports an opt-in, sandbox-only PayPal Disputes API submission of an `OTHER` evidence note when PayPal explicitly requests `OTHER` from the seller and exposes a provide-evidence action. Submission requires `PAYPAL_DISPUTES_EVIDENCE_SUBMISSION_ENABLED=true` and an explicit dashboard confirmation. Ambiguous outcomes are recorded and cannot be blindly retried.
 - Provides a human-review queue for recorded REVIEW tasks. Approval re-checks deterministic gates, PayPal authorization status, budget, and unresolved captures before attempting a sandbox capture; rejection makes no capture request.
 - Verifies user-supplied JSON and CSV artifacts (20 KB, 500 records, and 100 columns maximum) against explicit required-field, uniqueness, numeric-field, and minimum-row criteria. Unparseable artifacts route to REVIEW.
 - Saves verified artifacts as task records on a selected sandbox authorization and allows a separate explicit capture action only for a recorded PASS artifact task.
@@ -81,6 +83,8 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 - `POST /api/authorizations/:authorizationId/reference-contracts/:contractId/submit` — independently compare one worker output against the stored buyer source and contract; returns PASS/FAIL/REVIEW and a Proof Receipt without making a payment request. A separate capture action is required for a recorded PASS.
 - `POST /api/authorizations/:authorizationId/reference-contracts/:contractId/cancel` — cancel an unused OPEN contract and release its local authorization-budget reservation without contacting PayPal.
 - `POST /api/receipts/verify` — independently check receipt hashes and optionally compare supplied original artifact bytes.
+- `GET /api/authorizations/:authorizationId/tasks/:taskId/disputes/:disputeId/evidence-package` — retrieve the live PayPal dispute, require its seller transaction to match the task capture, and prepare a reviewable evidence package without submitting it.
+- `POST /api/authorizations/:authorizationId/tasks/:taskId/disputes/:disputeId/provide-evidence` — submit a short `OTHER` evidence note to the PayPal sandbox only when that exact evidence type is requested and the feature flag plus explicit confirmation are present.
 - `GET /api/scenarios` and `POST /api/scenarios/:scenarioId/simulate` — run payment-free `pass`, `review`, and `fail` simulations.
 - `POST /api/authorizations/:authorizationId/tasks/:taskId/review` — record a human decision on an unreviewed REVIEW task; APPROVE may attempt one sandbox capture after policy checks, REJECT never captures.
 - `GET /api/authorizations/:authorizationId/receipt/:taskId` — download a single task Proof Receipt.
@@ -113,6 +117,7 @@ The repository is released under the [MIT License](LICENSE).
 - The JSON file and in-process mutation queue are single-process demo storage, not suitable for multi-instance or production payment concurrency.
 - API endpoints do not implement user authentication or authorization, including human review. Reviewer names are audit labels, not verified identities. The server now rejects non-loopback `HOST` values and binds only to `127.0.0.1` or `::1`; this is a defensive guard, not a replacement for authentication. Do not expose it publicly without a redesigned authentication/authorization layer and production-grade storage.
 - Proof Receipt SHA-256 hashes and the receipt verifier detect recorded changes; they do not prove evidence truth or independently trusted provenance. Structural artifact checks assess format and configured rules, not domain correctness. Reference-backed checks verify only the explicitly contracted fields and formulas; they do not authenticate the buyer source.
+- Dispute evidence packages are preparation aids, not a guarantee of a favorable outcome. They do not prove delivery or source authenticity. The current PayPal integration submits only a merchant-reviewed `OTHER` note when PayPal requests it; it does not upload original source/output files, handle every evidence type, or automatically resolve disputes.
 - Store only synthetic or non-sensitive evidence in the prototype. Artifact task records store the file digest and a preview of up to three rows, not the full uploaded artifact; avoid confidential fields.
 - A capture timeout or server error is treated as uncertain and reserves the amount. Use the dashboard's reconciliation action, which checks a known capture ID or replays the exact original request ID and payload. PayPal documents idempotency for repeated requests using the same `PayPal-Request-Id`; still inspect transaction status before voiding the remainder.
 - If reconciliation resolves a run that stopped midway, the app intentionally does not resume the remaining tasks automatically. Review the task log and PayPal state, then void the unused remainder or start a fresh sandbox authorization for another complete run.
