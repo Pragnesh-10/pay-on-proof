@@ -13,6 +13,7 @@ const {
 } = require("./lib/payment-safety");
 const { createProofReceipt, verifyProofReceipt, sha256 } = require("./lib/proof-receipt");
 const { verifyArtifact } = require("./lib/artifact-verifier");
+const { prepareReferenceContract, verifyReferenceSubmission } = require("./lib/reference-verifier");
 const { listScenarios, simulateScenario } = require("./lib/scenario-simulator");
 
 const crypto = require("node:crypto");
@@ -568,6 +569,54 @@ function buildArtifactTask(result, amount = "0.00") {
   };
 }
 
+function buildReferenceTask(result, contract) {
+  const taskId = "reference-" + sha256(JSON.stringify({
+    contractId: contract.contractId,
+    outputSha256: result.outputArtifact.sha256,
+  })).slice(0, 16);
+  const evaluatedAt = new Date().toISOString();
+  return {
+    taskId,
+    title: contract.title,
+    amount: contract.amount,
+    acceptance: {
+      contractId: contract.contractId,
+      createdAt: contract.createdAt,
+      sourceArtifact: contract.sourceArtifact,
+      criteria: contract.criteria,
+    },
+    evidence: {
+      sourceArtifactSha256: contract.sourceArtifact.sha256,
+      outputArtifactSha256: result.outputArtifact.sha256,
+      sourceRecordCount: contract.sourceArtifact.recordCount,
+      outputRecordCount: result.outputArtifact.recordCount,
+      outputFileName: result.outputArtifact.fileName,
+      outputFormat: result.outputArtifact.format,
+      rowsPreview: result.recordsPreview || [],
+    },
+    verification: result.decision,
+    verificationSource: "reference-backed",
+    verificationModel: null,
+    verifierVersion: "1.1.0",
+    verificationChecks: result.checks,
+    reason: result.reason,
+    captureId: null,
+    captureStatus: "NOT_ATTEMPTED",
+    evaluatedAt,
+    review: null,
+    artifact: { ...result.outputArtifact },
+    referenceContractId: contract.contractId,
+    events: [{
+      type: "REFERENCE_BACKED_VERIFICATION_COMPLETED",
+      at: evaluatedAt,
+      decision: result.decision,
+      sourceSha256: contract.sourceArtifact.sha256,
+      outputSha256: result.outputArtifact.sha256,
+      contractId: contract.contractId,
+    }],
+  };
+}
+
 function parseArtifactAmount(value, { required = false } = {}) {
   if (value === undefined || value === null || value === "") {
     if (required) throw new TypeError("A task amount is required before saving an artifact to an authorization.");
@@ -676,6 +725,164 @@ app.post("/api/authorizations/:authorizationId/artifact-tasks", async (req, res)
   }
 });
 
+// Freeze a buyer-controlled source dataset and verification contract before a worker submits output.
+app.post("/api/authorizations/:authorizationId/reference-contracts", async (req, res) => {
+  const { authorizationId } = req.params;
+  if (!validId(authorizationId)) {
+    return res.status(400).json({ error: "Invalid authorization ID." });
+  }
+
+  try {
+    const body = req.body || {};
+    const amount = parseArtifactAmount(body.amount, { required: true });
+    const title = typeof body.title === "string" && body.title.trim()
+      ? body.title.trim().slice(0, 120)
+      : body.sourceFileName;
+    const prepared = prepareReferenceContract({
+      sourceFileName: body.sourceFileName,
+      sourceFormat: body.sourceFormat,
+      sourceContent: body.sourceContent,
+      contract: body.contract,
+    });
+    const contractId = "contract-" + sha256(JSON.stringify({
+      authorizationId,
+      sourceSha256: prepared.sourceArtifact.sha256,
+      criteria: prepared.criteria,
+      amount,
+    })).slice(0, 20);
+
+    const result = await serializeMutation(async () => {
+      const auth = state.authorizations[authorizationId];
+      if (!auth) {
+        const error = new Error("Authorization is not recorded locally. Create and authorize a fresh sandbox order first.");
+        error.status = 404;
+        throw error;
+      }
+      if (auth.voidRequested || !["CREATED", "PARTIALLY_CAPTURED"].includes(auth.status)) {
+        const error = new Error("A reference contract requires an active, non-voided authorization.");
+        error.status = 409;
+        throw error;
+      }
+      auth.referenceContracts = auth.referenceContracts && typeof auth.referenceContracts === "object"
+        ? auth.referenceContracts : {};
+      const existing = auth.referenceContracts[contractId];
+      if (existing) return { contract: existing, reused: true };
+
+      const contractRecord = {
+        contractId,
+        title,
+        amount,
+        sourceArtifact: prepared.sourceArtifact,
+        criteria: prepared.criteria,
+        sourceRecords: prepared.sourceRecords,
+        status: "OPEN",
+        submissionTaskId: null,
+        createdAt: new Date().toISOString(),
+      };
+      auth.referenceContracts[contractId] = contractRecord;
+      auth.updatedAt = contractRecord.createdAt;
+      saveState();
+      return { contract: contractRecord, reused: false };
+    });
+
+    res.status(200).json({
+      authorizationId,
+      contract: {
+        contractId: result.contract.contractId,
+        title: result.contract.title,
+        amount: result.contract.amount,
+        sourceArtifact: result.contract.sourceArtifact,
+        criteria: result.contract.criteria,
+        status: result.contract.status,
+        createdAt: result.contract.createdAt,
+      },
+      reused: result.reused,
+      message: result.reused
+        ? "The same buyer-approved contract already exists."
+        : "Buyer source data and acceptance rules are now frozen in this local sandbox authorization.",
+    });
+  } catch (error) {
+    if (error instanceof TypeError) return res.status(400).json({ error: error.message });
+    sendError(res, error);
+  }
+});
+
+// Worker submission is checked only against the source and contract stored above.
+app.post("/api/authorizations/:authorizationId/reference-contracts/:contractId/submit", async (req, res) => {
+  const { authorizationId, contractId } = req.params;
+  if (!validId(authorizationId) || !validId(contractId)) {
+    return res.status(400).json({ error: "Invalid authorization or contract ID." });
+  }
+
+  try {
+    const auth = state.authorizations[authorizationId];
+    const contract = auth?.referenceContracts?.[contractId];
+    if (!auth || !contract) {
+      return res.status(404).json({ error: "Buyer-approved reference contract was not found." });
+    }
+    if (contract.status !== "OPEN") {
+      return res.status(409).json({ error: "This contract already has a submission. Create a newly approved contract for a revised submission." });
+    }
+
+    const body = req.body || {};
+    const verification = verifyReferenceSubmission({
+      sourceRecords: contract.sourceRecords,
+      sourceArtifact: contract.sourceArtifact,
+      contract: contract.criteria,
+      outputFileName: body.outputFileName,
+      outputFormat: body.outputFormat,
+      outputContent: body.outputContent,
+    });
+    const candidate = buildReferenceTask(verification, contract);
+
+    const saved = await serializeMutation(async () => {
+      const currentAuth = state.authorizations[authorizationId];
+      const currentContract = currentAuth?.referenceContracts?.[contractId];
+      if (!currentAuth || !currentContract) {
+        const error = new Error("Buyer-approved reference contract is no longer available.");
+        error.status = 404;
+        throw error;
+      }
+      if (currentContract.status !== "OPEN") {
+        const error = new Error("This contract already has a submission. No second submission was recorded.");
+        error.status = 409;
+        throw error;
+      }
+      currentContract.status = "SUBMITTED";
+      currentContract.submissionTaskId = candidate.taskId;
+      candidate.events.push({
+        type: "REFERENCE_CONTRACT_SUBMITTED",
+        at: new Date().toISOString(),
+        contractId,
+      });
+      currentAuth.tasks = Array.isArray(currentAuth.tasks) ? currentAuth.tasks : [];
+      currentAuth.tasks.push(candidate);
+      currentAuth.updatedAt = new Date().toISOString();
+      saveState();
+      return { auth: currentAuth, task: candidate };
+    });
+
+    const proofReceipt = createProofReceipt({
+      authorizationId,
+      currency: saved.auth.currency || "USD",
+      authorizationStatus: saved.auth.status || null,
+      task: saved.task,
+    });
+    res.status(200).json({
+      authorizationId,
+      contractId,
+      task: saved.task,
+      checks: verification.checks,
+      proofReceipt,
+      paymentOutcome: "NOT_ATTEMPTED",
+      message: verification.reason + " Submission and verification do not call PayPal payment endpoints.",
+    });
+  } catch (error) {
+    if (error instanceof TypeError) return res.status(400).json({ error: error.message });
+    sendError(res, error);
+  }
+});
+
 // Capture is a separate, explicit operation. It accepts only a recorded PASS
 // artifact task and rechecks provider status, available budget, and uncertainty.
 app.post("/api/authorizations/:authorizationId/artifact-tasks/:taskId/capture", async (req, res) => {
@@ -698,8 +905,9 @@ app.post("/api/authorizations/:authorizationId/artifact-tasks/:taskId/capture", 
         error.status = 404;
         throw error;
       }
-      if (task.verification !== "PASS" || task.verificationSource !== "deterministic-artifact") {
-        const error = new Error("Only a recorded artifact task with a PASS decision can be captured.");
+      if (task.verification !== "PASS" ||
+          !["deterministic-artifact", "reference-backed"].includes(task.verificationSource)) {
+        const error = new Error("Only a recorded artifact task with an independently permitted PASS decision can be captured.");
         error.status = 409;
         throw error;
       }
@@ -754,7 +962,7 @@ app.post("/api/authorizations/:authorizationId/artifact-tasks/:taskId/capture", 
         status: "IN_PROGRESS",
         startedAt: new Date().toISOString(),
         captureId: null,
-        source: "artifact-verification",
+        source: task.verificationSource === "reference-backed" ? "reference-backed-verification" : "artifact-verification",
       };
       auth.captures.push(attempt);
       task.captureStatus = "IN_PROGRESS";
@@ -764,7 +972,7 @@ app.post("/api/authorizations/:authorizationId/artifact-tasks/:taskId/capture", 
         at: attempt.startedAt,
         requestId,
         amount: task.amount,
-        source: "artifact-verification",
+        source: task.verificationSource === "reference-backed" ? "reference-backed-verification" : "artifact-verification",
       });
       auth.updatedAt = attempt.startedAt;
       saveState();
