@@ -115,12 +115,12 @@ test("unparseable worker output routes to REVIEW, not PASS", () => {
 
 test("buyer source contract rejects duplicate keys and missing or non-numeric formula inputs", () => {
   assert.throws(
-    () => createContract(JSON.stringify([{ id: "A", quantity: 1, unitPrice: 2 }, { id: "A", quantity: 3, unitPrice: 4 }])),
+    () => createContract(JSON.stringify([{ id: "A", quantity: 1, unitPrice: 2, description: "first" }, { id: "A", quantity: 3, unitPrice: 4, description: "second" }])),
     /duplicate id/
   );
   assert.throws(
-    () => createContract(JSON.stringify([{ id: "A", quantity: 1 }])),
-    /missing formula input unitPrice/
+    () => createContract(JSON.stringify([{ id: "A", quantity: 1, description: "item" }])),
+    /missing preserved field unitPrice/
   );
   assert.throws(
     () => createContract(JSON.stringify([{ id: "A", quantity: 1, unitPrice: 0 }]), {
@@ -153,7 +153,7 @@ test("source and worker CSV files are independently compared", () => {
   const contract = prepareReferenceContract({
     sourceFileName: "buyer-source.csv",
     sourceFormat: "csv",
-    sourceContent: "id,quantity,unitPrice\nINV-1,3,12.5\nINV-2,2,7",
+    sourceContent: "id,quantity,unitPrice,description\nINV-1,3,12.5,Widget\nINV-2,2,7,Cable",
     contract: contractInput,
   });
   const result = verifyReferenceSubmission({
