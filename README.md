@@ -25,8 +25,8 @@ Do not claim a fully autonomous worker agent or a complete agentic marketplace y
 - Provides a human-review queue for recorded REVIEW tasks. Approval re-checks deterministic gates, PayPal authorization status, budget, and unresolved captures before attempting a sandbox capture; rejection makes no capture request.
 - Verifies user-supplied JSON and CSV artifacts (20 KB, 500 records, and 100 columns maximum) against explicit required-field, uniqueness, numeric-field, and minimum-row criteria. Unparseable artifacts route to REVIEW.
 - Saves verified artifacts as task records on a selected sandbox authorization and allows a separate explicit capture action only for a recorded PASS artifact task.
-- Adds buyer-reference verification for JSON/CSV data-reconciliation tasks. A buyer freezes source rows, key field, preserved fields, amount, and deterministic formulas before submission. The worker output is checked for duplicate keys, missing/extra records, modified source fields, and incorrect derived values.
-- Stores the buyer source rows in the local state file so the worker submission route uses the frozen contract rather than replacement rules or source data supplied with the output. A contract accepts one submission; a failed result requires a newly approved contract.
+- Adds buyer-reference verification for JSON/CSV data-reconciliation tasks. A buyer freezes source rows, key field, preserved fields, amount, and deterministic formulas before submission. The worker output is checked for duplicate keys, missing/extra records, modified source fields, and incorrect derived values. Contract amounts reserve authorization funds before work is submitted.
+- Stores the buyer source rows in the local state file so the worker submission route uses the frozen contract rather than replacement rules or source data supplied with the output. OPEN contracts reserve funds, and a submitted PASS remains reserved until capture starts. FAIL/REVIEW releases the reservation. An unused OPEN contract can be cancelled; submitted contracts remain immutable.
 - Adds a confirmed artifact-processing workflow that chains verification, task recording, and one capture request for a newly recorded PASS. REVIEW and FAIL stop before capture; reused task records are never auto-captured again, and uncertain outcomes require reconciliation.
 - Recomputes Proof Receipt integrity hashes, with an optional comparison against the original artifact bytes.
 - Includes an optional labelled synthetic Groq evaluation script that reports false-pass, false-fail, review, exact-match, provider-error, and latency metrics. The small authored fixture set is not a validated benchmark.
@@ -79,6 +79,7 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 - `POST /api/authorizations/:authorizationId/artifact-tasks/:taskId/capture` — capture only a recorded PASS artifact task after live status, budget, unresolved-capture, and duplicate-attempt checks.
 - `POST /api/authorizations/:authorizationId/reference-contracts` — freeze a buyer-controlled source dataset, task amount, key field, preserved fields, and calculation rules on an active sandbox authorization.
 - `POST /api/authorizations/:authorizationId/reference-contracts/:contractId/submit` — independently compare one worker output against the stored buyer source and contract; returns PASS/FAIL/REVIEW and a Proof Receipt without making a payment request. A separate capture action is required for a recorded PASS.
+- `POST /api/authorizations/:authorizationId/reference-contracts/:contractId/cancel` — cancel an unused OPEN contract and release its local authorization-budget reservation without contacting PayPal.
 - `POST /api/receipts/verify` — independently check receipt hashes and optionally compare supplied original artifact bytes.
 - `GET /api/scenarios` and `POST /api/scenarios/:scenarioId/simulate` — run payment-free `pass`, `review`, and `fail` simulations.
 - `POST /api/authorizations/:authorizationId/tasks/:taskId/review` — record a human decision on an unreviewed REVIEW task; APPROVE may attempt one sandbox capture after policy checks, REJECT never captures.
@@ -87,7 +88,7 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 - `npm run test:groq` — run a local, payment-free Groq API smoke test.
 - `POST /api/orders` — create a $50 sandbox order.
 - `POST /api/orders/:orderId/authorize` — authorize an approved order created by this server.
-- `GET /api/authorizations/:authorizationId` — query PayPal status and local capture totals.
+- `GET /api/authorizations/:authorizationId` — query PayPal status, local capture totals, outstanding reference-contract reservations, and the locally available authorization amount.
 - `POST /api/authorizations/:authorizationId/run-demo` — run the controlled single-use demo.
 - `POST /api/authorizations/:authorizationId/capture` — bounded manual partial capture endpoint.
 - `POST /api/authorizations/:authorizationId/reconcile` — reconcile unresolved captures using the original request ID, or query a known capture ID.
