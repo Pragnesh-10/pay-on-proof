@@ -188,6 +188,49 @@ function captureTotals(authRecord) {
   return { committedCents, uncertainCents };
 }
 
+// Funds committed to reference-backed work remain unavailable to other captures.
+// OPEN contracts reserve funds. A submitted PASS remains reserved until capture
+// is attempted; FAIL and REVIEW submissions release their reservation.
+function referenceContractReservationTotals(authRecord, { excludeTaskId = null } = {}) {
+  const tasks = Array.isArray(authRecord.tasks) ? authRecord.tasks : [];
+  const captures = Array.isArray(authRecord.captures) ? authRecord.captures : [];
+  const contracts = Object.values(authRecord.referenceContracts || {});
+  const reservations = [];
+  let reservedCents = 0;
+
+  for (const contract of contracts) {
+    if (!contract || typeof contract !== "object") continue;
+    let shouldReserve = contract.status === "OPEN";
+
+    if (contract.status === "SUBMITTED" &&
+        contract.submissionTaskId !== excludeTaskId) {
+      const hasCaptureAttempt = captures.some(
+        (capture) => capture.taskId === contract.submissionTaskId
+      );
+      if (!hasCaptureAttempt) {
+        const task = tasks.find(
+          (item) => item.taskId === contract.submissionTaskId
+        );
+        // Missing task state is treated conservatively as reserved.
+        shouldReserve = !task ||
+          (task.verification === "PASS" && task.captureStatus === "NOT_ATTEMPTED");
+      }
+    }
+
+    if (!shouldReserve) continue;
+    const amountCents = moneyToCents(contract.amount);
+    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) continue;
+    reservedCents += amountCents;
+    reservations.push({
+      contractId: contract.contractId,
+      amount: contract.amount,
+      status: contract.status,
+    });
+  }
+
+  return { reservedCents, reservations };
+}
+
 // API health and verifier mode. Never return secret configuration.
 app.get("/api/health", (_req, res) => {
   const aiConfigured = Boolean(process.env.GROQ_API_KEY);
@@ -411,6 +454,22 @@ app.get(
                 state.authorizations[authorizationId]
               ),
             }
+          : null,
+        referenceReservedCents: state.authorizations[authorizationId]
+          ? referenceContractReservationTotals(
+              state.authorizations[authorizationId]
+            ).reservedCents
+          : null,
+        availableCents: state.authorizations[authorizationId]
+          ? Math.max(
+              0,
+              moneyToCents(state.authorizations[authorizationId].authorizedAmount) -
+                captureTotals(state.authorizations[authorizationId]).committedCents -
+                captureTotals(state.authorizations[authorizationId]).uncertainCents -
+                referenceContractReservationTotals(
+                  state.authorizations[authorizationId]
+                ).reservedCents
+            )
           : null,
         paypalCaptures: remote
           .links?.filter((link) => link.rel === "capture")
@@ -769,6 +828,19 @@ app.post("/api/authorizations/:authorizationId/reference-contracts", async (req,
       const existing = auth.referenceContracts[contractId];
       if (existing) return { contract: existing, reused: true };
 
+      const captured = captureTotals(auth);
+      const reserved = referenceContractReservationTotals(auth);
+      const requestedCents = moneyToCents(amount);
+      if (captured.committedCents + captured.uncertainCents +
+          reserved.reservedCents + requestedCents >
+          moneyToCents(auth.authorizedAmount)) {
+        const error = new Error(
+          "Reference contract exceeds the remaining authorization budget after existing captures and contract reservations."
+        );
+        error.status = 409;
+        throw error;
+      }
+
       const contractRecord = {
         contractId,
         title,
@@ -804,6 +876,51 @@ app.post("/api/authorizations/:authorizationId/reference-contracts", async (req,
     });
   } catch (error) {
     if (error instanceof TypeError) return res.status(400).json({ error: error.message });
+    sendError(res, error);
+  }
+});
+
+// Cancel an unused contract to release its reserved authorization amount.
+app.post("/api/authorizations/:authorizationId/reference-contracts/:contractId/cancel", async (req, res) => {
+  const { authorizationId, contractId } = req.params;
+  if (!validId(authorizationId) || !validId(contractId)) {
+    return res.status(400).json({ error: "Invalid authorization or contract ID." });
+  }
+
+  try {
+    const result = await serializeMutation(async () => {
+      const auth = state.authorizations[authorizationId];
+      const contract = auth?.referenceContracts?.[contractId];
+      if (!auth || !contract) {
+        const error = new Error("Buyer-approved reference contract was not found.");
+        error.status = 404;
+        throw error;
+      }
+      if (contract.status !== "OPEN") {
+        const error = new Error("Only an OPEN contract with no worker submission can be cancelled.");
+        error.status = 409;
+        throw error;
+      }
+
+      const cancelledAt = new Date().toISOString();
+      contract.status = "CANCELLED";
+      contract.cancelledAt = cancelledAt;
+      contract.events = Array.isArray(contract.events) ? contract.events : [];
+      contract.events.push({ type: "REFERENCE_CONTRACT_CANCELLED", at: cancelledAt });
+      auth.updatedAt = cancelledAt;
+      saveState();
+      return { contract, auth };
+    });
+
+    res.json({
+      authorizationId,
+      contractId,
+      status: result.contract.status,
+      reservedAmountReleased: result.contract.amount,
+      paymentSideEffects: false,
+      message: "The unused reference contract was cancelled and its local budget reservation was released. No PayPal request was made.",
+    });
+  } catch (error) {
     sendError(res, error);
   }
 });
@@ -948,9 +1065,13 @@ app.post("/api/authorizations/:authorizationId/artifact-tasks/:taskId/capture", 
       }
 
       const totals = captureTotals(auth);
-      if (totals.committedCents + totals.uncertainCents + moneyToCents(task.amount) >
+      const otherReservations = referenceContractReservationTotals(auth, {
+        excludeTaskId: taskId,
+      });
+      if (totals.committedCents + totals.uncertainCents +
+          otherReservations.reservedCents + moneyToCents(task.amount) >
           moneyToCents(auth.authorizedAmount)) {
-        const error = new Error("Artifact capture exceeds the remaining locally available authorization budget.");
+        const error = new Error("Artifact capture exceeds the available authorization budget after reference-contract reservations.");
         error.status = 409;
         throw error;
       }
@@ -1109,6 +1230,14 @@ app.post(
           throw error;
         }
 
+        if (referenceContractReservationTotals(auth).reservedCents > 0) {
+          const error = new Error(
+            "Resolve or cancel open reference contracts before starting the controlled demo on this authorization."
+          );
+          error.status = 409;
+          throw error;
+        }
+
         if (auth.demoRunStarted) {
           const error = new Error(
             "This authorization has already been used for a demo run. Create a fresh authorization for another run."
@@ -1205,11 +1334,13 @@ app.post(
 
           const { committedCents, uncertainCents } =
             captureTotals(auth);
+          const reservedCents =
+            referenceContractReservationTotals(auth).reservedCents;
           const requestedCents = moneyToCents(task.amount);
           const budgetCents = moneyToCents(auth.authorizedAmount);
 
           if (
-            committedCents + uncertainCents + requestedCents >
+            committedCents + uncertainCents + reservedCents + requestedCents >
             budgetCents
           ) {
             taskRecord.captureStatus = "BLOCKED_BUDGET";
@@ -1477,9 +1608,12 @@ app.post(
         }
 
         const { committedCents, uncertainCents } = captureTotals(auth);
-        if (committedCents + uncertainCents + moneyToCents(task.amount) >
+        const reservedCents = referenceContractReservationTotals(auth, {
+          excludeTaskId: taskId,
+        }).reservedCents;
+        if (committedCents + uncertainCents + reservedCents + moneyToCents(task.amount) >
             moneyToCents(auth.authorizedAmount)) {
-          const error = new Error("Review-approved capture exceeds the remaining locally available budget.");
+          const error = new Error("Review-approved capture exceeds the available budget after reference-contract reservations.");
           error.status = 409;
           throw error;
         }
@@ -1659,10 +1793,12 @@ app.post(
         );
         const { committedCents, uncertainCents } =
           captureTotals(local);
+        const reservedCents =
+          referenceContractReservationTotals(local).reservedCents;
         const requestedCents = moneyToCents(amount);
 
         if (
-          committedCents + uncertainCents + requestedCents >
+          committedCents + uncertainCents + reservedCents + requestedCents >
           authorizedCents
         ) {
           const error = new Error(
@@ -1922,6 +2058,15 @@ app.post(
             "Authorization is not recorded locally."
           );
           error.status = 404;
+          throw error;
+        }
+
+        const reserved = referenceContractReservationTotals(local);
+        if (reserved.reservedCents > 0) {
+          const error = new Error(
+            "Cancel unused reference contracts or submit their outputs before voiding the remaining authorization."
+          );
+          error.status = 409;
           throw error;
         }
 
