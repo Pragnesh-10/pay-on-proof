@@ -293,13 +293,158 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   assert.equal(captured.data.paymentOutcome, "CAPTURE_COMPLETED");
   assert.equal(captureCount, 1);
 
+  const buyerSource = JSON.stringify([
+    { id: "INV-1", quantity: 3, unitPrice: 12.5, description: "Widget" },
+    { id: "INV-2", quantity: 2, unitPrice: 7, description: "Cable" },
+  ]);
+  const buyerContract = {
+    keyField: "id",
+    preserveFields: ["quantity", "unitPrice", "description"],
+    derivedFields: [{ field: "lineTotal", operation: "multiply", inputs: ["quantity", "unitPrice"] }],
+  };
+  const createReferenceContract = async () => requestJson(
+    appBaseUrl,
+    "/api/authorizations/AUTH_TEST_1/reference-contracts",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        title: "Reconcile invoice line totals",
+        amount: "10.00",
+        sourceFileName: "buyer-invoices.json",
+        sourceFormat: "json",
+        sourceContent: buyerSource,
+        contract: buyerContract,
+      }),
+    },
+  );
+
+  const invalidContract = await requestJson(
+    appBaseUrl,
+    "/api/authorizations/AUTH_TEST_1/reference-contracts",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        amount: "10.00",
+        sourceFileName: "duplicate-source.json",
+        sourceFormat: "json",
+        sourceContent: JSON.stringify([
+          { id: "INV-1", quantity: 3, unitPrice: 12.5 },
+          { id: "INV-1", quantity: 2, unitPrice: 7 },
+        ]),
+        contract: buyerContract,
+      }),
+    },
+  );
+  assert.equal(invalidContract.status, 400, "buyer source with duplicate keys must not become an accepted contract");
+
+  const failContract = await createReferenceContract();
+  assert.equal(failContract.status, 200, JSON.stringify(failContract.data));
+  assert.equal(failContract.data.contract.status, "OPEN");
+  assert.equal("sourceRecords" in failContract.data.contract, false, "raw buyer rows must not be returned to the browser");
+  const badWorkerOutput = JSON.stringify([
+    { id: "INV-1", quantity: 3, unitPrice: 12.5, description: "Widget", lineTotal: 999 },
+    { id: "INV-2", quantity: 2, unitPrice: 7, description: "Cable", lineTotal: 14 },
+  ]);
+  const rejectedSubmission = await requestJson(
+    appBaseUrl,
+    "/api/authorizations/AUTH_TEST_1/reference-contracts/" +
+      encodeURIComponent(failContract.data.contract.contractId) + "/submit",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        outputFileName: "worker-output.json",
+        outputFormat: "json",
+        outputContent: badWorkerOutput,
+        contract: { keyField: "fake", derivedFields: [] },
+        sourceContent: JSON.stringify([{ id: "fake", quantity: 0, unitPrice: 0 }]),
+      }),
+    },
+  );
+  assert.equal(rejectedSubmission.status, 200, JSON.stringify(rejectedSubmission.data));
+  assert.equal(rejectedSubmission.data.task.verification, "FAIL");
+  assert.equal(rejectedSubmission.data.task.verificationSource, "reference-backed");
+  assert.equal(
+    rejectedSubmission.data.checks.find((check) => check.id === "derived:lineTotal").passed,
+    false,
+    "worker output must be checked against the stored buyer formula, not submitted booleans",
+  );
+  assert.equal(captureCount, 1, "verification must not call PayPal");
+  const blockedReferenceCapture = await requestJson(
+    appBaseUrl,
+    "/api/authorizations/AUTH_TEST_1/artifact-tasks/" +
+      encodeURIComponent(rejectedSubmission.data.task.taskId) + "/capture",
+    { method: "POST", body: "{}" },
+  );
+  assert.equal(blockedReferenceCapture.status, 409);
+  assert.equal(captureCount, 1, "failed reference-backed output must not be captured");
+
+  const replaySubmission = await requestJson(
+    appBaseUrl,
+    "/api/authorizations/AUTH_TEST_1/reference-contracts/" +
+      encodeURIComponent(failContract.data.contract.contractId) + "/submit",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        outputFileName: "second-attempt.json",
+        outputFormat: "json",
+        outputContent: JSON.stringify([]),
+      }),
+    },
+  );
+  assert.equal(replaySubmission.status, 409, "a frozen contract accepts only one worker submission");
+
+  const passContract = await createReferenceContract();
+  assert.equal(passContract.status, 200);
+  const goodWorkerOutput = JSON.stringify([
+    { id: "INV-1", quantity: 3, unitPrice: 12.5, description: "Widget", lineTotal: 37.5 },
+    { id: "INV-2", quantity: 2, unitPrice: 7, description: "Cable", lineTotal: 14 },
+  ]);
+  const acceptedSubmission = await requestJson(
+    appBaseUrl,
+    "/api/authorizations/AUTH_TEST_1/reference-contracts/" +
+      encodeURIComponent(passContract.data.contract.contractId) + "/submit",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        outputFileName: "worker-output.json",
+        outputFormat: "json",
+        outputContent: goodWorkerOutput,
+      }),
+    },
+  );
+  assert.equal(acceptedSubmission.status, 200, JSON.stringify(acceptedSubmission.data));
+  assert.equal(acceptedSubmission.data.task.verification, "PASS");
+  assert.equal(acceptedSubmission.data.paymentOutcome, "NOT_ATTEMPTED");
+  assert.equal(captureCount, 1, "accepted verification does not itself capture funds");
+  assert.ok(acceptedSubmission.data.task.acceptance.sourceArtifact.sha256);
+  assert.ok(acceptedSubmission.data.task.evidence.outputArtifactSha256);
+
+  const referenceCapture = await requestJson(
+    appBaseUrl,
+    "/api/authorizations/AUTH_TEST_1/artifact-tasks/" +
+      encodeURIComponent(acceptedSubmission.data.task.taskId) + "/capture",
+    { method: "POST", body: "{}" },
+  );
+  assert.equal(referenceCapture.status, 200, JSON.stringify(referenceCapture.data));
+  assert.equal(referenceCapture.data.task.captureStatus, "COMPLETED");
+  assert.equal(referenceCapture.data.paymentOutcome, "CAPTURE_COMPLETED");
+  assert.equal(captureCount, 2, "only the independently verified PASS task reaches PayPal");
+
+  const referenceReceiptCheck = await requestJson(appBaseUrl, "/api/receipts/verify", {
+    method: "POST",
+    body: JSON.stringify({ receipt: referenceCapture.data.proofReceipt, artifactContent: goodWorkerOutput }),
+  });
+  assert.equal(referenceReceiptCheck.status, 200);
+  assert.equal(referenceReceiptCheck.data.valid, true, JSON.stringify(referenceReceiptCheck.data));
+  assert.equal(referenceReceiptCheck.data.artifactContentChecked, true);
+
   const duplicateCapture = await requestJson(
     appBaseUrl,
     "/api/authorizations/AUTH_TEST_1/artifact-tasks/" + encodeURIComponent(savedPass.data.task.taskId) + "/capture",
     { method: "POST", body: "{}" },
   );
   assert.equal(duplicateCapture.status, 409);
-  assert.equal(captureCount, 1, "duplicate task capture must be blocked");
+  assert.equal(captureCount, 2, "duplicate task capture must be blocked");
 
   const receiptCheck = await requestJson(appBaseUrl, "/api/receipts/verify", {
     method: "POST",
