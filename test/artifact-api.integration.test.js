@@ -302,14 +302,14 @@ test("artifact API previews without payment, blocks failed captures, and verifie
     preserveFields: ["quantity", "unitPrice", "description"],
     derivedFields: [{ field: "lineTotal", operation: "multiply", inputs: ["quantity", "unitPrice"] }],
   };
-  const createReferenceContract = async () => requestJson(
+  const createReferenceContract = async (amount = "10.00") => requestJson(
     appBaseUrl,
     "/api/authorizations/AUTH_TEST_1/reference-contracts",
     {
       method: "POST",
       body: JSON.stringify({
         title: "Reconcile invoice line totals",
-        amount: "10.00",
+        amount,
         sourceFileName: "buyer-invoices.json",
         sourceFormat: "json",
         sourceContent: buyerSource,
@@ -393,7 +393,7 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   );
   assert.equal(replaySubmission.status, 409, "a frozen contract accepts only one worker submission");
 
-  const passContract = await createReferenceContract();
+  const passContract = await createReferenceContract("11.00");
   assert.equal(passContract.status, 200);
   const goodWorkerOutput = JSON.stringify([
     { id: "INV-1", quantity: 3, unitPrice: 12.5, description: "Widget", lineTotal: 37.5 },
@@ -490,7 +490,7 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   assert.equal(timeoutCapture.status, 200);
   assert.equal(timeoutCapture.data.task.captureStatus, "UNKNOWN");
   assert.equal(timeoutCapture.data.paymentOutcome, "OUTCOME_UNCERTAIN");
-  assert.equal(captureCount, 2, "the mock provider accepted the capture despite dropping its response");
+  assert.equal(captureCount, 3, "the mock provider accepted the capture despite dropping its response");
 
   const blockedVoidDuringUnknown = await requestJson(
     appBaseUrl, "/api/authorizations/AUTH_TEST_1/void", { method: "POST", body: "{}" },
@@ -559,7 +559,7 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   assert.equal(reconciledPending.status, 200);
   assert.equal(reconciledPending.data.unresolvedCount, 0);
   assert.equal(reconciledPending.data.tasks.find((item) => item.taskId === pendingTask.data.task.taskId).captureStatus, "COMPLETED");
-  assert.equal(captureCount, 3, "checking a known capture ID must not create another capture");
+  assert.equal(captureCount, 4, "checking a known capture ID must not create another capture");
 
   const voidAfterResolution = await requestJson(
     appBaseUrl, "/api/authorizations/AUTH_TEST_1/void", { method: "POST", body: "{}" },
