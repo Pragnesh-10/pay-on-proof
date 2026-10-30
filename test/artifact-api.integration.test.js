@@ -72,11 +72,18 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   let authorizationStatus = "CREATED";
   let nextCaptureMode = "normal";
   let voidCount = 0;
+  let evidenceSubmissionCount = 0;
   const providerCaptures = new Map();
 
   const paypalMock = http.createServer(async (req, res) => {
     const body = await readBody(req);
-    mockCalls.push({ method: req.method, url: req.url, body, requestId: req.headers["paypal-request-id"] || null });
+    mockCalls.push({
+      method: req.method,
+      url: req.url,
+      body,
+      contentType: req.headers["content-type"] || null,
+      requestId: req.headers["paypal-request-id"] || null,
+    });
 
     if (req.method === "POST" && req.url === "/v1/oauth2/token") {
       return sendJson(res, 200, { access_token: "test-token", expires_in: 3600 });
@@ -111,6 +118,47 @@ test("artifact API previews without payment, blocks failed captures, and verifie
         id: "AUTH_TEST_1",
         status: authorizationStatus,
         amount: { currency_code: "USD", value: "50.00" },
+      });
+    }
+
+    if (req.method === "GET" && req.url === "/v1/customer/disputes/PP-D-TEST-1") {
+      return sendJson(res, 200, {
+        dispute_id: "PP-D-TEST-1",
+        reason: "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED",
+        status: "WAITING_FOR_SELLER_RESPONSE",
+        dispute_life_cycle_stage: "INQUIRY",
+        dispute_amount: { currency_code: "USD", value: "11.00" },
+        seller_response_due_date: "2026-11-05T00:00:00.000Z",
+        disputed_transactions: [{
+          seller_transaction_id: "CAPTURE_TEST_2",
+          transaction_status: "COMPLETED",
+          gross_amount: { currency_code: "USD", value: "11.00" },
+        }],
+        evidences: [{
+          evidence_type: "OTHER",
+          source: "REQUESTED_FROM_SELLER",
+          dispute_life_cycle_stage: "INQUIRY",
+        }],
+        links: [{
+          rel: "provide-evidence",
+          href: "http://127.0.0.1:" + paypalPort + "/v1/customer/disputes/PP-D-TEST-1/provide-evidence",
+          method: "POST",
+        }],
+      });
+    }
+
+    if (req.method === "POST" && req.url === "/v1/customer/disputes/PP-D-TEST-1/provide-evidence") {
+      evidenceSubmissionCount += 1;
+      if (!req.headers["content-type"]?.startsWith("multipart/form-data; boundary=")) {
+        return sendJson(res, 415, { message: "Expected multipart evidence request." });
+      }
+      if (!body.raw?.includes('"evidence_type":"OTHER"') ||
+          !body.raw?.includes("Buyer contract ID: contract-")) {
+        return sendJson(res, 400, { message: "Evidence notes missing required task details." });
+      }
+      return sendJson(res, 200, {
+        dispute_id: "PP-D-TEST-1",
+        links: [{ rel: "self", href: "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-D-TEST-1", method: "GET" }],
       });
     }
 
@@ -164,6 +212,7 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   const appProcess = spawn(process.execPath, [path.join(__dirname, "..", "server.js")], {
     env: {
       ...process.env,
+      NODE_ENV: "test",
       HOST: "127.0.0.1",
       PORT: String(appPort),
       PAYPAL_BASE_URL: "http://127.0.0.1:" + paypalPort,
@@ -171,6 +220,7 @@ test("artifact API previews without payment, blocks failed captures, and verifie
       PAYPAL_CLIENT_SECRET: "test-secret",
       PAYONPROOF_STATE_FILE: stateFile,
       PAYONPROOF_TEMP_FILE: path.join(tempDir, "state.tmp"),
+      PAYPAL_DISPUTES_EVIDENCE_SUBMISSION_ENABLED: "true",
       GROQ_API_KEY: "",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -458,6 +508,54 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   assert.equal(referenceCapture.data.task.captureStatus, "COMPLETED");
   assert.equal(referenceCapture.data.paymentOutcome, "CAPTURE_COMPLETED");
   assert.equal(captureCount, 2, "only the independently verified PASS task reaches PayPal");
+
+  const evidencePackageRoute = "/api/authorizations/AUTH_TEST_1/tasks/" +
+    encodeURIComponent(acceptedSubmission.data.task.taskId) +
+    "/disputes/PP-D-TEST-1/evidence-package";
+  const evidencePackageResponse = await requestJson(appBaseUrl, evidencePackageRoute);
+  assert.equal(evidencePackageResponse.status, 200, JSON.stringify(evidencePackageResponse.data));
+  assert.equal(evidencePackageResponse.data.paymentSideEffects, false);
+  assert.equal(
+    evidencePackageResponse.data.evidencePackage.submissionEligibility.canSubmitOtherEvidenceNote,
+    true,
+  );
+  assert.equal(
+    evidencePackageResponse.data.evidencePackage.dispute.matchedSellerTransactionId,
+    referenceCapture.data.task.captureId,
+  );
+  assert.match(evidencePackageResponse.data.evidencePackage.merchantNotesDraft, /Buyer contract ID:/);
+  assert.equal(evidenceSubmissionCount, 0, "preparing the package must not submit evidence");
+
+  const submitWithoutConfirmation = await requestJson(
+    appBaseUrl,
+    "/api/authorizations/AUTH_TEST_1/tasks/" +
+      encodeURIComponent(acceptedSubmission.data.task.taskId) +
+      "/disputes/PP-D-TEST-1/provide-evidence",
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  assert.equal(submitWithoutConfirmation.status, 400);
+  assert.equal(evidenceSubmissionCount, 0);
+
+  const submittedEvidence = await requestJson(
+    appBaseUrl,
+    "/api/authorizations/AUTH_TEST_1/tasks/" +
+      encodeURIComponent(acceptedSubmission.data.task.taskId) +
+      "/disputes/PP-D-TEST-1/provide-evidence",
+    { method: "POST", body: JSON.stringify({ confirm: true }) },
+  );
+  assert.equal(submittedEvidence.status, 200, JSON.stringify(submittedEvidence.data));
+  assert.equal(submittedEvidence.data.status, "SUBMITTED");
+  assert.equal(evidenceSubmissionCount, 1, "one evidence submission should reach the PayPal mock");
+
+  const duplicateEvidenceSubmission = await requestJson(
+    appBaseUrl,
+    "/api/authorizations/AUTH_TEST_1/tasks/" +
+      encodeURIComponent(acceptedSubmission.data.task.taskId) +
+      "/disputes/PP-D-TEST-1/provide-evidence",
+    { method: "POST", body: JSON.stringify({ confirm: true }) },
+  );
+  assert.equal(duplicateEvidenceSubmission.status, 409);
+  assert.equal(evidenceSubmissionCount, 1, "duplicate evidence submission must be blocked locally");
 
   const blockedByOpenContract = await requestJson(
     appBaseUrl,

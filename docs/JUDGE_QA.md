@@ -58,6 +58,12 @@ Preview, contract creation, and output submission do not call PayPal payment end
 
 The server stores each capture attempt before sending it, uses a stable `PayPal-Request-Id`, and reserves unresolved amounts against the budget. For uncertain outcomes, reconciliation queries a known capture or replays the same request ID and payload. A task with an existing capture attempt is blocked from another capture.
 
+## How does Pay-on-Proof help with PayPal disputes?
+
+For a task with a confirmed PayPal capture, the app can retrieve a dispute and link it only when the dispute's seller transaction ID exactly matches the task's capture ID. It creates a merchant-review package containing the contract metadata, output digest, verification checks, payment reference, PayPal-requested evidence types, and seller-response deadline. In the sandbox, it can submit a short `OTHER` note only if PayPal explicitly requests that evidence type and exposes a provide-evidence action. The merchant must review and confirm the submission.
+
+This is not a chargeback prevention or dispute-win guarantee. The app does not prove source authenticity or actual delivery, does not handle all evidence types, and currently does not upload document attachments.
+
 ## What does a Proof Receipt prove?
 
 It records evidence, contract criteria, verifier provenance and checks, decision, payment status, and event history. SHA-256 hashes detect changes to the recorded snapshot. They do not prove the source file is authentic, the facts are true, or the receipt issuer is authenticated.
@@ -69,6 +75,10 @@ Authorization has a limited validity window and the highest capture success is d
 ## Is this production ready?
 
 No. This is a local sandbox prototype. It has no user authentication/authorization, uses local JSON state and a single-process in-memory mutation queue, has no distributed lock or durable outbox, and does not implement worker payouts or webhooks. The server is restricted to loopback and must not be exposed to the public internet.
+
+## What are the PayPal Disputes API prerequisites?
+
+The merchant's PayPal REST app must have the Disputes feature enabled and the required access. The prototype is configured for the merchant's own sandbox app, not delegated third-party merchant access. To test a dispute end to end, create a sandbox transaction/dispute using PayPal's documented buyer-side sandbox flow, then fetch the dispute and inspect its requested evidence types and HATEOAS actions. Submission is disabled by default and requires `PAYPAL_DISPUTES_EVIDENCE_SUBMISSION_ENABLED=true`; the server refuses this action unless the API base URL is a sandbox URL.
 
 ## What would you build next?
 

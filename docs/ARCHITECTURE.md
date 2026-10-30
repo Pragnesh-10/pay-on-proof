@@ -39,6 +39,16 @@ The reference-backed flow is the strongest current evidence-verification example
 
 The verifier assumes the buyer-provided source and contract are trustworthy. It does not authenticate their issuer or validate claims outside the selected fields and formula rules.
 
+## PayPal dispute-readiness workflow
+
+1. A merchant selects a task whose PayPal capture status is `COMPLETED` and enters a dispute ID.
+2. The backend calls PayPal `GET /v1/customer/disputes/{id}` using the merchant's configured sandbox REST app.
+3. The backend requires an exact match between `disputed_transactions[].seller_transaction_id` and the task's recorded PayPal capture ID. A dispute for another transaction is rejected.
+4. The evidence package includes the Proof Receipt, contract and artifact metadata, verifier checks, payment references, requested evidence types, seller response deadline, and a bounded merchant note draft. The package hash covers the full export.
+5. Submission is permitted only when PayPal reports `WAITING_FOR_SELLER_RESPONSE`, has an evidence entry with `source=REQUESTED_FROM_SELLER` and `evidence_type=OTHER`, and exposes a `provide-evidence` HATEOAS action.
+6. A merchant must enable the sandbox submission feature flag and explicitly confirm in the dashboard. The backend stores an `IN_PROGRESS` attempt before sending the multipart request. A duplicate attempt is blocked. An uncertain response is recorded as `UNKNOWN` and must be checked in PayPal manually.
+7. The current implementation submits only the `OTHER` notes field. It does not upload files, synthesize tracking/refund information, choose other evidence types, or decide the dispute outcome.
+
 ## Controlled payment demo
 
 1. The backend creates a USD 50 order with intent `AUTHORIZE`; checkout return is not treated as approval.
@@ -130,6 +140,7 @@ An eligible PASS is not itself proof of payment success. The PayPal response and
 - Startup rejects `HOST` values other than `127.0.0.1` or `::1` while API authentication is absent. This does not protect against a separately configured reverse proxy or tunnel; keep remote access disabled.
 - Simulation receipts use mode SIMULATION_ONLY, payment.authoritative false, and no capture ID.
 - Reference contract creation and worker submission do not call PayPal. Only the separate PASS task capture route calls the payment endpoint.
+- Dispute lookup is read-only. Evidence package generation does not submit to PayPal. Evidence-note submission is sandbox-only, opt-in, explicitly confirmed, limited to PayPal-requested `OTHER` evidence, tied to an exact capture ID, and protected against duplicate attempts.
 
 ## Deliberate non-goals
 

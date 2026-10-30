@@ -15,6 +15,7 @@ const { createProofReceipt, verifyProofReceipt, sha256 } = require("./lib/proof-
 const { verifyArtifact } = require("./lib/artifact-verifier");
 const { prepareReferenceContract, verifyReferenceSubmission } = require("./lib/reference-verifier");
 const { listScenarios, simulateScenario } = require("./lib/scenario-simulator");
+const { createDisputeEvidencePackage } = require("./lib/dispute-evidence");
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -29,6 +30,9 @@ const {
   PAYPAL_CLIENT_SECRET,
   PORT = 3000,
 } = process.env;
+
+const PAYPAL_DISPUTES_EVIDENCE_SUBMISSION_ENABLED =
+  process.env.PAYPAL_DISPUTES_EVIDENCE_SUBMISSION_ENABLED === "true";
 
 const LOCAL_BASE_URL = `http://127.0.0.1:${PORT}`;
 
@@ -138,6 +142,44 @@ async function paypalRequest(
     throw error;
   }
 
+  return data;
+}
+
+async function paypalFormRequest(apiPath, formData) {
+  if (typeof FormData !== "function" || typeof Blob !== "function") {
+    throw new Error("This Node.js runtime does not provide FormData and Blob for multipart PayPal requests.");
+  }
+
+  const tokenResponse = await fetch(`${PAYPAL_BASE_URL}/v1/oauth2/token`, {
+    method: "POST",
+    headers: {
+      Authorization: "Basic " + Buffer.from(
+        `${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`
+      ).toString("base64"),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials",
+  });
+  const tokenData = await tokenResponse.json().catch(() => ({}));
+  if (!tokenResponse.ok) {
+    const error = new Error(`PayPal OAuth failed (${tokenResponse.status})`);
+    error.status = tokenResponse.status;
+    error.details = tokenData;
+    throw error;
+  }
+
+  const response = await fetch(`${PAYPAL_BASE_URL}${apiPath}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    body: formData,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(`PayPal API failed (${response.status})`);
+    error.status = response.status;
+    error.details = data;
+    throw error;
+  }
   return data;
 }
 
@@ -2198,6 +2240,248 @@ app.get("/api/authorizations/:authorizationId/receipt/:taskId", (req, res) => {
     task,
   }));
 });
+
+
+// Prepare a merchant-review evidence package for a dispute linked to a completed task capture.
+async function loadDisputeEvidenceContext(authorizationId, taskId, disputeId) {
+  const auth = state.authorizations[authorizationId];
+  if (!auth) {
+    const error = new Error("Authorization is not recorded locally.");
+    error.status = 404;
+    throw error;
+  }
+  const task = (auth.tasks || []).find((item) => item.taskId === taskId);
+  if (!task) {
+    const error = new Error("Task is not recorded for this authorization.");
+    error.status = 404;
+    throw error;
+  }
+  if (task.captureStatus !== "COMPLETED" || !task.captureId) {
+    const error = new Error("Dispute evidence requires a confirmed COMPLETED capture for this task.");
+    error.status = 409;
+    throw error;
+  }
+
+  const dispute = await paypalRequest(
+    "/v1/customer/disputes/" + encodeURIComponent(disputeId)
+  );
+  const proofReceipt = createProofReceipt({
+    authorizationId,
+    currency: auth.currency || "USD",
+    authorizationStatus: auth.status || null,
+    task,
+  });
+  const evidencePackage = createDisputeEvidencePackage({
+    receipt: proofReceipt,
+    dispute,
+  });
+  return { auth, task, dispute, evidencePackage };
+}
+
+app.get(
+  "/api/authorizations/:authorizationId/tasks/:taskId/disputes/:disputeId/evidence-package",
+  async (req, res) => {
+    const { authorizationId, taskId, disputeId } = req.params;
+    if (![authorizationId, taskId, disputeId].every(validId)) {
+      return res.status(400).json({ error: "Invalid authorization, task, or dispute ID." });
+    }
+    try {
+      const context = await loadDisputeEvidenceContext(authorizationId, taskId, disputeId);
+      res.json({
+        authorizationId,
+        taskId,
+        disputeId,
+        evidencePackage: context.evidencePackage,
+        paymentSideEffects: false,
+        message: context.evidencePackage.submissionEligibility.canSubmitOtherEvidenceNote
+          ? "PayPal is waiting for seller OTHER evidence. Review the merchant notes and package before choosing whether to submit."
+          : "Evidence package prepared for review only. PayPal's current dispute status or requested evidence does not allow an OTHER note submission.",
+      });
+    } catch (error) {
+      if (error.status) return sendError(res, error);
+      sendError(res, error);
+    }
+  }
+);
+
+// Submit a short OTHER evidence note only when PayPal explicitly requests it.
+// This is sandbox-only, opt-in, and requires a second explicit confirmation.
+app.post(
+  "/api/authorizations/:authorizationId/tasks/:taskId/disputes/:disputeId/provide-evidence",
+  async (req, res) => {
+    const { authorizationId, taskId, disputeId } = req.params;
+    if (![authorizationId, taskId, disputeId].every(validId)) {
+      return res.status(400).json({ error: "Invalid authorization, task, or dispute ID." });
+    }
+    if (req.body?.confirm !== true) {
+      return res.status(400).json({ error: "Set confirm=true only after reviewing the evidence package and PayPal dispute details." });
+    }
+    if (!PAYPAL_DISPUTES_EVIDENCE_SUBMISSION_ENABLED) {
+      return res.status(403).json({ error: "Dispute evidence submission is disabled. Set PAYPAL_DISPUTES_EVIDENCE_SUBMISSION_ENABLED=true to enable the sandbox-only action." });
+    }
+    let sandboxApiUrl = false;
+    try {
+      const paypalUrl = new URL(PAYPAL_BASE_URL);
+      const isPaypalSandboxHost = paypalUrl.protocol === "https:" &&
+        ["api-m.sandbox.paypal.com", "api.sandbox.paypal.com"].includes(paypalUrl.hostname);
+      const isLoopbackTestHost = process.env.NODE_ENV === "test" &&
+        paypalUrl.protocol === "http:" &&
+        ["127.0.0.1", "::1", "localhost"].includes(paypalUrl.hostname);
+      sandboxApiUrl = isPaypalSandboxHost || isLoopbackTestHost;
+    } catch {
+      sandboxApiUrl = false;
+    }
+    if (!sandboxApiUrl) {
+      return res.status(403).json({ error: "Dispute evidence submission is restricted to a PayPal sandbox API base URL. Loopback mock URLs are permitted only when NODE_ENV=test." });
+    }
+
+    let context;
+    try {
+      context = await loadDisputeEvidenceContext(authorizationId, taskId, disputeId);
+    } catch (error) {
+      return sendError(res, error);
+    }
+    if (!context.evidencePackage.submissionEligibility.canSubmitOtherEvidenceNote) {
+      return res.status(409).json({
+        error: "PayPal has not exposed an eligible seller OTHER-evidence action for this dispute.",
+        submissionEligibility: context.evidencePackage.submissionEligibility,
+      });
+    }
+
+    let attempt;
+    try {
+      attempt = await serializeMutation(async () => {
+        const currentAuth = state.authorizations[authorizationId];
+        const currentTask = (currentAuth?.tasks || []).find((item) => item.taskId === taskId);
+        if (!currentAuth || !currentTask ||
+            currentTask.captureStatus !== "COMPLETED" ||
+            currentTask.captureId !== context.task.captureId) {
+          const error = new Error("Task payment state changed; refresh the dispute evidence package before submitting.");
+          error.status = 409;
+          throw error;
+        }
+        currentTask.disputeEvidenceAttempts = Array.isArray(currentTask.disputeEvidenceAttempts)
+          ? currentTask.disputeEvidenceAttempts : [];
+        if (currentTask.disputeEvidenceAttempts.some((item) => item.disputeId === disputeId)) {
+          const error = new Error("A dispute evidence submission attempt is already recorded for this dispute. Inspect PayPal before taking any further action.");
+          error.status = 409;
+          throw error;
+        }
+        const startedAt = new Date().toISOString();
+        const record = {
+          disputeId,
+          evidenceType: "OTHER",
+          status: "IN_PROGRESS",
+          notesSha256: sha256(context.evidencePackage.merchantNotesDraft),
+          packageSha256: context.evidencePackage.packageSha256,
+          startedAt,
+        };
+        currentTask.disputeEvidenceAttempts.push(record);
+        currentTask.events = Array.isArray(currentTask.events) ? currentTask.events : [];
+        currentTask.events.push({
+          type: "PAYPAL_DISPUTE_EVIDENCE_SUBMISSION_STARTED",
+          at: startedAt,
+          disputeId,
+          evidenceType: "OTHER",
+          packageSha256: context.evidencePackage.packageSha256,
+        });
+        currentAuth.updatedAt = startedAt;
+        saveState();
+        return record;
+      });
+    } catch (error) {
+      return sendError(res, error);
+    }
+
+    try {
+      const formData = new FormData();
+      const input = {
+        evidences: [{
+          evidence_type: "OTHER",
+          notes: context.evidencePackage.merchantNotesDraft,
+        }],
+      };
+      formData.append(
+        "input",
+        new Blob([JSON.stringify(input)], { type: "application/json" }),
+        "input.json"
+      );
+      const response = await paypalFormRequest(
+        "/v1/customer/disputes/" + encodeURIComponent(disputeId) + "/provide-evidence",
+        formData
+      );
+
+      const completedAt = new Date().toISOString();
+      await serializeMutation(async () => {
+        const currentAuth = state.authorizations[authorizationId];
+        const currentTask = (currentAuth?.tasks || []).find((item) => item.taskId === taskId);
+        const record = currentTask?.disputeEvidenceAttempts?.find(
+          (item) => item.disputeId === disputeId && item.startedAt === attempt.startedAt
+        );
+        if (!record) return;
+        record.status = "SUBMITTED";
+        record.submittedAt = completedAt;
+        record.paypalResponse = {
+          disputeId: response.dispute_id || disputeId,
+          links: Array.isArray(response.links)
+            ? response.links.filter((link) => ["self", "dispute"].includes(link.rel))
+            : [],
+        };
+        currentTask.events.push({
+          type: "PAYPAL_DISPUTE_EVIDENCE_SUBMITTED",
+          at: completedAt,
+          disputeId,
+          evidenceType: "OTHER",
+        });
+        currentAuth.updatedAt = completedAt;
+        saveState();
+      });
+
+      res.json({
+        authorizationId,
+        taskId,
+        disputeId,
+        evidenceType: "OTHER",
+        status: "SUBMITTED",
+        packageSha256: context.evidencePackage.packageSha256,
+        paypalResponse: {
+          disputeId: response.dispute_id || disputeId,
+          links: Array.isArray(response.links)
+            ? response.links.filter((link) => ["self", "dispute"].includes(link.rel))
+            : [],
+        },
+        message: "PayPal accepted the evidence submission request. This does not predict or guarantee the dispute outcome.",
+      });
+    } catch (error) {
+      const failedAt = new Date().toISOString();
+      await serializeMutation(async () => {
+        const currentAuth = state.authorizations[authorizationId];
+        const currentTask = (currentAuth?.tasks || []).find((item) => item.taskId === taskId);
+        const record = currentTask?.disputeEvidenceAttempts?.find(
+          (item) => item.disputeId === disputeId && item.startedAt === attempt.startedAt
+        );
+        if (!record) return;
+        record.status = "UNKNOWN";
+        record.errorStatus = error.status || null;
+        record.failedAt = failedAt;
+        currentTask.events.push({
+          type: "PAYPAL_DISPUTE_EVIDENCE_SUBMISSION_OUTCOME_UNKNOWN",
+          at: failedAt,
+          disputeId,
+          httpStatus: record.errorStatus,
+        });
+        currentAuth.updatedAt = failedAt;
+        saveState();
+      });
+      const uncertain = new Error(
+        "PayPal evidence submission returned an error or an uncertain response. Inspect the dispute in PayPal before attempting another submission."
+      );
+      uncertain.status = 502;
+      uncertain.details = { paypalStatus: error.status || null };
+      return sendError(res, uncertain);
+    }
+  }
+);
 
 // View locally persisted payment records.
 app.get("/api/state", (_req, res) => {

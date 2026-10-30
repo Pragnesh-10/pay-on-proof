@@ -2,7 +2,7 @@
 
 ## One-line pitch
 
-**Pay-on-Proof connects independently checked work to task-level PayPal payments:** a buyer freezes the source data and acceptance contract before submission; the backend verifies the returned output and permits a partial capture only for a passing task.
+**Pay-on-Proof connects independently checked digital work to PayPal payment and dispute workflows:** a buyer freezes source data and acceptance rules before submission; the backend verifies the output, gates capture on PASS, and prepares transaction-linked evidence for eligible disputes.
 
 ## Hackathon positioning
 
@@ -12,9 +12,9 @@ Do not claim a fully autonomous worker agent or a complete agentic marketplace y
 
 ## The problem
 
-A buyer needs a way to pay for submitted work without relying only on the worker's statement that the task passed. Milestone payment tools already support staged work and human approval. Pay-on-Proof explores a narrower automation layer: evaluate a concrete deliverable against a buyer-approved contract, keep uncertain cases out of automatic payment, and record the decision and payment outcome.
+A business outsourcing structured digital work needs a reliable way to verify whether a deliverable met the agreed requirements before releasing payment. Manual checks cost time, and later disputes can be difficult to investigate when the agreement, source data, delivered artifact, verification steps, and payment record are scattered. Existing milestone and payment products coordinate delivery, approval, and payment; Pay-on-Proof adds a machine-checkable verification layer and a structured evidence record for that specific workflow.
 
-This is a product hypothesis for structured digital work. The project has not yet measured dispute reduction, faster settlement, or business productivity gains.
+This is a product hypothesis for structured digital work. The project has not yet measured dispute reduction, faster settlement, dispute-win rates, or business productivity gains. The evidence package is a merchant-support aid, not a chargeback-prevention guarantee.
 
 ## The solution
 
@@ -22,7 +22,7 @@ Pay-on-Proof combines three parts:
 
 1. **Buyer-approved task contract.** The buyer uploads a source dataset and freezes the amount, key field, fields that must remain unchanged, and deterministic formula rules on a local PayPal sandbox authorization.
 2. **Independent output verification.** The worker submits a JSON or CSV result separately. The backend uses the previously stored source rows and contract. It checks unique record keys, complete key coverage, unchanged source fields, and calculated numeric outputs. It does not accept worker-supplied `passed: true` flags.
-3. **Payment policy and Proof Receipt.** Verification returns PASS or FAIL; unparseable output returns REVIEW. Submission itself never calls PayPal. Only a stored PASS task is eligible for a separate, explicitly confirmed partial capture after live authorization, budget, duplicate-attempt, and unresolved-capture checks.
+3. **Payment policy and evidence record.** Verification returns PASS or FAIL; unparseable output returns REVIEW. Submission itself never calls PayPal. Only a stored PASS task is eligible for a separate, explicitly confirmed partial capture after live authorization, budget, duplicate-attempt, and unresolved-capture checks. A completed capture can be linked to a live PayPal dispute by matching the seller transaction ID to the recorded capture ID. The app then prepares a merchant-review evidence package and, when PayPal explicitly requests `OTHER` evidence, can submit a short `OTHER` note to the sandbox.
 
 ### Worked example: invoice line reconciliation
 
@@ -57,6 +57,7 @@ The intended synthetic path captures $35 using two non-final partial captures, t
 - A failed or ambiguous submission does not trigger payment.
 - The backend keeps financial execution separate from AI output.
 - Proof Receipts preserve the source/output digests, criteria, checks, decision, payment status, and event history.
+- Dispute evidence packages tie a local task receipt to a PayPal dispute only when `disputed_transactions[].seller_transaction_id` exactly matches the recorded PayPal capture ID. The package includes the requested evidence types, response deadline, contract metadata, output digest, checks, and a bounded merchant note draft.
 
 We do not claim that partial capture, milestone payments, or escrow-like workflows are new. PayPal already supports authorization and capture, and freelance platforms already support milestone approval. The differentiation being tested is the buyer-reference verification step and its connection to a guarded task-level capture.
 
@@ -82,6 +83,7 @@ See [Architecture](ARCHITECTURE.md) for sequence and trust boundaries.
 - Existing controlled demo with optional Groq review for Task A, deterministic fixture checks for B/C, and partial capture.
 - Capture idempotency IDs, pre-call persistence, uncertain-outcome tracking, reconciliation, and void safeguards.
 - Human-review queue, scenario simulator, Proof Receipts, and receipt hash validation.
+- Dispute evidence package generation, live PayPal dispute lookup, and opt-in sandbox submission of `OTHER` notes only when requested by PayPal.
 - Automated unit and mock-provider integration tests.
 
 ## Evidence and honest limits
