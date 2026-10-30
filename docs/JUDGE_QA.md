@@ -34,6 +34,10 @@ The reference-backed route does not read or trust worker-supplied pass booleans.
 
 No. The reference verifier proves only its explicit checks: keys, record coverage, protected fields, and configured formulas. It cannot establish whether the buyer's source is authentic, whether a formula is the right business rule, or whether unrelated claims are true. We need trusted source connectors and domain-specific checks to expand coverage.
 
+## What happens if a worker adds unapproved columns to the output?
+
+The reference verifier rejects any output field that is not listed as a preserved source field or a declared calculated field in the frozen buyer contract. An extra field such as an unrequested `approved: true` flag therefore causes FAIL even when all configured calculations are correct.
+
 ## Can a contract be changed after the worker submits?
 
 A reference contract is stored before submission and accepts one submission. The worker route uses the stored source rows and criteria rather than accepting replacements. A failed submission is retained; a revised attempt needs a newly approved contract. The current prototype has no authenticated buyer identity, so this is a local workflow control rather than a production authorization guarantee.
