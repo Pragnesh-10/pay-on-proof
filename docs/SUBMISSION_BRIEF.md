@@ -21,7 +21,7 @@ This is a product hypothesis for structured digital work. The project has not ye
 Pay-on-Proof combines three parts:
 
 1. **Buyer-approved task contract.** The buyer uploads a source dataset and freezes the amount, key field, fields that must remain unchanged, and deterministic formula rules on a local PayPal sandbox authorization.
-2. **Independent output verification.** The worker submits a JSON or CSV result separately. The backend uses the previously stored source rows and contract. It checks unique record keys, complete key coverage, unchanged source fields, and calculated numeric outputs. It does not accept worker-supplied `passed: true` flags.
+2. **Independent output verification.** The worker submits a JSON or CSV result separately. The backend uses the previously stored source rows and contract. It checks unique record keys, complete key coverage, unchanged source fields, calculated numeric outputs, and rejects output columns not named in the contract. It does not accept worker-supplied `passed: true` flags.
 3. **Optional AI worker and independent verification.** After explicit consent, the experimental Groq worker can generate candidate JSON from the stored buyer source and frozen rules. It is limited to 50 source records and a 12 KB prompt. The same deterministic reference verifier used for manual output checks its record coverage, preserved fields, and calculations. The model cannot issue PASS or control payment.
 4. **Payment policy and evidence record.** Verification returns PASS or FAIL; unparseable output returns REVIEW. Submission itself never calls PayPal. Only a stored PASS task is eligible for a separate, explicitly confirmed partial capture after live authorization, budget, duplicate-attempt, and unresolved-capture checks. A completed capture can be linked to a live PayPal dispute by matching the seller transaction ID to the recorded capture ID. The app then prepares a merchant-review evidence package and, when PayPal explicitly requests `OTHER` evidence, can submit a short `OTHER` note to the sandbox.
 
@@ -78,7 +78,8 @@ See [Architecture](ARCHITECTURE.md) for sequence and trust boundaries.
 - USD 50 sandbox order with intent `AUTHORIZE`, buyer approval, and explicit authorization.
 - Reference-contract creation on an active authorization. Source data and criteria are stored before output submission.
 - One worker-output submission per contract.
-- Independent checks for unique keys, record count, complete source-key coverage, preserved source fields, and formula-derived numeric fields.
+- Independent checks for unique keys, record count, complete source-key coverage, preserved source fields, formula-derived numeric fields, and an output column allowlist.
+- An authored adversarial evaluation command covering valid output, incorrect totals, altered formula inputs, missing/duplicate/unexpected records, uncontracted columns, and malformed output.
 - PASS/FAIL decisions for parseable output; malformed output routes to REVIEW.
 - Stored reference-backed tasks are eligible for the existing explicit PASS-only capture endpoint.
 - Existing controlled demo with optional Groq review for Task A, deterministic fixture checks for B/C, and partial capture.
@@ -92,7 +93,7 @@ See [Architecture](ARCHITECTURE.md) for sequence and trust boundaries.
 
 The reference verifier is deterministic, not AI. Its assurance is bounded to the buyer source rows and contract rules it receives. A buyer who supplies false source data or weak acceptance criteria can still create a bad contract. The prototype has not authenticated the buyer identity or source-system provenance.
 
-The optional Groq reviewer handles one narrow semantic check in the controlled report task. The experimental Groq worker can propose a structured invoice transformation from the frozen buyer source after explicit consent. Its result is only a candidate: the deterministic verifier checks the actual output, and AI errors do not produce a PASS. Neither AI component has PayPal tools or payment authority. The worker uses a 50-record limit, a 12 KB prompt limit, and a 20 KB output limit. The current synthetic fixture sets are not representative benchmarks; no production accuracy percentage is claimed.
+The optional Groq reviewer handles one narrow semantic check in the controlled report task. The experimental Groq worker can propose a structured invoice transformation from the frozen buyer source after explicit consent. Its result is only a candidate: the deterministic verifier checks the actual output, and AI errors do not produce a PASS. Neither AI component has PayPal tools or payment authority. The worker uses a 50-record limit, a 12 KB prompt limit, and a 20 KB output limit. The current synthetic fixture sets are not representative benchmarks; no production accuracy percentage is claimed. `npm run evaluate:reference` reports expected decisions for eight authored cases and false-PASS/false-reject counts; it measures rule regression behavior only, not real-world accuracy.
 
 The current PayPal order captures to the merchant/payee associated with that order. This prototype does not implement a separate worker payee, seller onboarding, marketplace split, or payout/disbursement flow. Therefore it demonstrates conditional capture, not a complete buyer-to-contractor settlement product.
 
