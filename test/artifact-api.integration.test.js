@@ -540,7 +540,7 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   );
   assert.equal(pendingCapture.status, 200);
   assert.equal(pendingCapture.data.task.captureStatus, "PENDING");
-  assert.equal(captureCount, 3);
+  assert.equal(captureCount, 4);
 
   const blockedVoidDuringPending = await requestJson(
     appBaseUrl, "/api/authorizations/AUTH_TEST_1/void", { method: "POST", body: "{}" },
