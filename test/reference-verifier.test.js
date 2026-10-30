@@ -105,6 +105,42 @@ test("duplicate and unexpected output keys fail independently", () => {
   assert.equal(result.checks.find((check) => check.id === "source-key-coverage").passed, false);
 });
 
+test("worker output with uncontracted columns is rejected", () => {
+  const contract = createContract();
+  const outputWithExtraClaim = JSON.stringify([
+    { id: "INV-1", quantity: 3, unitPrice: 12.5, description: "Widget", lineTotal: 37.5, approved: true },
+    { id: "INV-2", quantity: 2, unitPrice: 7, description: "Cable", lineTotal: 14 },
+  ]);
+  const result = verify(contract, outputWithExtraClaim);
+  assert.equal(result.decision, "FAIL");
+  assert.equal(result.checks.find((check) => check.id === "output-field-allowlist").passed, false);
+  assert.match(result.checks.find((check) => check.id === "output-field-allowlist").details, /approved/);
+});
+
+test("worker output missing a contracted derived field is rejected", () => {
+  const contract = createContract();
+  const missingTotal = JSON.stringify([
+    { id: "INV-1", quantity: 3, unitPrice: 12.5, description: "Widget" },
+    { id: "INV-2", quantity: 2, unitPrice: 7, description: "Cable", lineTotal: 14 },
+  ]);
+  const result = verify(contract, missingTotal);
+  assert.equal(result.decision, "FAIL");
+  assert.equal(result.checks.find((check) => check.id === "derived:lineTotal").passed, false);
+});
+
+test("worker output cannot add an unexpected record even when its formula is plausible", () => {
+  const contract = createContract();
+  const extraRecord = JSON.stringify([
+    { id: "INV-1", quantity: 3, unitPrice: 12.5, description: "Widget", lineTotal: 37.5 },
+    { id: "INV-2", quantity: 2, unitPrice: 7, description: "Cable", lineTotal: 14 },
+    { id: "INV-3", quantity: 1, unitPrice: 1, description: "Unapproved", lineTotal: 1 },
+  ]);
+  const result = verify(contract, extraRecord);
+  assert.equal(result.decision, "FAIL");
+  assert.equal(result.checks.find((check) => check.id === "record-count").passed, false);
+  assert.equal(result.checks.find((check) => check.id === "source-key-coverage").passed, false);
+});
+
 test("unparseable worker output routes to REVIEW, not PASS", () => {
   const contract = createContract();
   const result = verify(contract, '[{"id":"INV-1"');
