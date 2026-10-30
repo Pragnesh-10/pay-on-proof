@@ -68,6 +68,10 @@ This is the strongest proof-of-work workflow. Use synthetic files from the repos
 
 The reference verification and submission routes make no payment calls. Only the separate capture action can move funds, and only for a stored PASS task after backend checks.
 
+### Adversarial verifier regression check
+
+Run `npm run evaluate:reference` before recording the demo. It exercises eight authored synthetic cases: one correct output, incorrect total, altered formula input, missing record, duplicate record, uncontracted column, unexpected record, and malformed JSON. Inspect the false-PASS and false-reject counts. The script fails CI if any authored case returns an unexpected decision. These cases test the implemented rules; they are not a real-world model accuracy benchmark.
+
 ### Optional AI worker experiment
 
 This experimental flow sends buyer source rows to Groq. Use only the repository's synthetic invoice fixture or other non-sensitive sample data.

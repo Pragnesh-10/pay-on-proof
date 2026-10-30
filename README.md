@@ -27,12 +27,13 @@ The AI worker is an experimental, operator-enabled helper, not a fully autonomou
 - Provides a human-review queue for recorded REVIEW tasks. Approval re-checks deterministic gates, PayPal authorization status, budget, and unresolved captures before attempting a sandbox capture; rejection makes no capture request.
 - Verifies user-supplied JSON and CSV artifacts (20 KB, 500 records, and 100 columns maximum) against explicit required-field, uniqueness, numeric-field, and minimum-row criteria. Unparseable artifacts route to REVIEW.
 - Saves verified artifacts as task records on a selected sandbox authorization and allows a separate explicit capture action only for a recorded PASS artifact task.
-- Adds buyer-reference verification for JSON/CSV data-reconciliation tasks. A buyer freezes source rows, key field, preserved fields, amount, and deterministic formulas before submission. The worker output is checked for duplicate keys, missing/extra records, modified source fields, and incorrect derived values. Contract amounts reserve authorization funds before work is submitted.
+- Adds buyer-reference verification for JSON/CSV data-reconciliation tasks. A buyer freezes source rows, key field, preserved fields, amount, and deterministic formulas before submission. The worker output is checked for duplicate keys, missing/extra records, modified source fields, incorrect derived values, and uncontracted output columns. Contract amounts reserve authorization funds before work is submitted.
 - Adds an experimental Groq worker for buyer-approved reference contracts. It is disabled by default, requires explicit consent before sending source rows to Groq, accepts at most 50 records and a 12 KB prompt, and returns candidate JSON only. The backend deterministic verifier decides PASS/FAIL/REVIEW; the worker has no payment tools.
 - Stores the buyer source rows in the local state file so the worker submission route uses the frozen contract rather than replacement rules or source data supplied with the output. OPEN contracts reserve funds, and a submitted PASS remains reserved until capture starts. FAIL/REVIEW releases the reservation. An unused OPEN contract can be cancelled; submitted contracts remain immutable.
 - Adds a confirmed artifact-processing workflow that chains verification, task recording, and one capture request for a newly recorded PASS. REVIEW and FAIL stop before capture; reused task records are never auto-captured again, and uncertain outcomes require reconciliation.
 - Recomputes Proof Receipt integrity hashes, with an optional comparison against the original artifact bytes.
 - Includes an optional labelled synthetic Groq evaluation script that reports false-pass, false-fail, review, exact-match, provider-error, and latency metrics. The small authored fixture set is not a validated benchmark.
+- Includes `npm run evaluate:reference`, a deterministic regression check over eight authored invoice cases. It reports decision mismatches, false-PASS, and false-reject counts. It is not a production accuracy benchmark.
 
 The controlled demo's intended results are Task A $15 PASS, Task B $20 PASS, Task C $10 FAIL: $35 captured, with the remaining $15 authorization voided. The $15 is an unused authorization amount, **not a refund**.
 
@@ -92,6 +93,7 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 - `GET /api/authorizations/:authorizationId/receipt/:taskId` — download a single task Proof Receipt.
 - `GET /api/authorizations/:authorizationId/receipts` — export all task Proof Receipts.
 - `npm run test:groq` — run a local, payment-free Groq API smoke test.
+- `npm run evaluate:reference` — run the eight-case authored adversarial reference-verifier regression check.
 - `POST /api/orders` — create a $50 sandbox order.
 - `POST /api/orders/:orderId/authorize` — authorize an approved order created by this server.
 - `GET /api/authorizations/:authorizationId` — query PayPal status, local capture totals, outstanding reference-contract reservations, and the locally available authorization amount.
@@ -111,6 +113,7 @@ Failure recovery is covered with a local mock-provider integration test: a lost 
 - [Architecture](docs/ARCHITECTURE.md) — components, decision flow, data persistence, and trust boundaries.
 - [Judge Q&A](docs/JUDGE_QA.md) — concise, honest answers to likely technical and product questions.
 - [Dispute evidence guide](docs/DISPUTE_EVIDENCE.md) — PayPal sandbox setup, matching rules, supported evidence, and explicit submission safeguards.
+- [Pitch and demo script](docs/PITCH.md) — timed presentation, live demo, fallback plan, and safe judge claims.
 
 The repository is released under the [MIT License](LICENSE).
 
@@ -119,7 +122,7 @@ The repository is released under the [MIT License](LICENSE).
 - Use only PayPal **sandbox** credentials. Do not expose credentials in browser code or commit them to Git.
 - The JSON file and in-process mutation queue are single-process demo storage, not suitable for multi-instance or production payment concurrency.
 - API endpoints do not implement user authentication or authorization, including human review. Reviewer names are audit labels, not verified identities. The server now rejects non-loopback `HOST` values and binds only to `127.0.0.1` or `::1`; this is a defensive guard, not a replacement for authentication. Do not expose it publicly without a redesigned authentication/authorization layer and production-grade storage.
-- Proof Receipt SHA-256 hashes and the receipt verifier detect recorded changes; they do not prove evidence truth or independently trusted provenance. Structural artifact checks assess format and configured rules, not domain correctness. Reference-backed checks verify only the explicitly contracted fields and formulas; they do not authenticate the buyer source.
+- Proof Receipt SHA-256 hashes and the receipt verifier detect recorded changes; they do not prove evidence truth or independently trusted provenance. Structural artifact checks assess format and configured rules, not domain correctness. Reference-backed checks verify only the explicitly contracted fields, formulas, and output-field allowlist; they do not authenticate the buyer source.
 - Dispute evidence packages are preparation aids, not a guarantee of a favorable outcome. They do not prove delivery or source authenticity. The current PayPal integration submits only a merchant-reviewed `OTHER` note when PayPal requests it; it does not upload original source/output files, handle every evidence type, or automatically resolve disputes.
 - Store only synthetic or non-sensitive evidence in the prototype. Artifact task records store the file digest and a preview of up to three rows, not the full uploaded artifact; avoid confidential fields.
 - The experimental AI worker sends the stored buyer source rows and contract criteria to Groq only when `GROQ_AI_WORKER_ENABLED=true` and the request includes explicit consent. It is limited to 50 rows and a 12 KB serialized prompt, and calls only the official Groq endpoint (loopback overrides are test-only). Do not send personal, confidential, regulated, or customer production data.

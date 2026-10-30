@@ -2,7 +2,7 @@ name: Test
 
 on:
   push:
-    branches: ["main", "feat/**"]
+    branches: ["main", "feat/**", "test/**"]
   pull_request:
     branches: ["main"]
 
@@ -36,7 +36,10 @@ jobs:
           node --check lib/ai-worker.js
           node --check test/ai-worker.test.js
           node --check scripts/evaluate-groq.js
+          node --check scripts/evaluate-reference.js
           node --check scripts/groq-smoke.js
           node -e 'const fs=require("node:fs"); const vm=require("node:vm"); const html=fs.readFileSync("public/index.html","utf8"); const start=html.indexOf("<script>"); const end=html.indexOf("</script>", start + 8); if(start<0 || end<0) throw new Error("Dashboard script not found"); new vm.Script(html.slice(start + 8, end)); console.log("Dashboard JavaScript syntax OK");'
       - name: Run verifier tests
         run: npm test
+      - name: Evaluate reference verifier against authored adversarial fixtures
+        run: npm run evaluate:reference
