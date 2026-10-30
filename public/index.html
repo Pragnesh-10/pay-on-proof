@@ -399,7 +399,7 @@
         </div>
       </div>
       <div class="button-row">
-        <button id="processArtifactWorkflow">Run agent workflow · capture only on PASS</button>
+        <button id="processArtifactWorkflow">Process artifact · capture only on PASS</button>
       </div>
       <div class="button-row">
         <button id="verifyArtifact" class="secondary">Verify artifact (no payment)</button>
@@ -1180,10 +1180,10 @@
     if (!authorizationId) throw new Error("Select an authorization ID in the Payment session first.");
     const payload = await readArtifactForm();
     if (!/^(?:0|[1-9]\d{0,2})\.\d{2}$/.test(payload.amount) || Number(payload.amount) <= 0) {
-      throw new Error("Enter a positive task amount, such as 15.00, before running the agent workflow.");
+      throw new Error("Enter a positive task amount, such as 15.00, before processing the artifact workflow.");
     }
     if (!confirm(
-      "Run the bounded agent workflow for sandbox authorization " + authorizationId + "?\n\n" +
+      "Process the artifact workflow for sandbox authorization " + authorizationId + "?\n\n" +
       "Artifact: " + payload.fileName + "\nTask amount: $" + payload.amount + "\n\n" +
       "The backend will check the configured structural criteria and save the result. " +
       "A newly recorded PASS task will trigger one PayPal sandbox capture for $" + payload.amount +
@@ -1213,7 +1213,7 @@
         await refreshStatus().catch(() => {});
         renderArtifactResult(saved, { authorizationId });
         showAudit({
-          workflow: "ARTIFACT_AGENT_WORKFLOW",
+          workflow: "ARTIFACT_PROCESSING_WORKFLOW",
           stage: "CAPTURE_RESPONSE_ERROR",
           authorizationId,
           taskId: saved.task.taskId,
@@ -1242,7 +1242,7 @@
     if (saved.reused) {
       message("This artifact task was already recorded. No automatic capture was attempted; inspect the existing task before any separate capture action.", "error");
     } else if (result.paymentOutcome === "CAPTURE_COMPLETED") {
-      message("Agent workflow complete: acceptance criteria passed and the sandbox capture completed. Download the Proof Receipt for the audit trail.", "success");
+      message("Artifact workflow complete: acceptance criteria passed and the sandbox capture completed. Download the Proof Receipt for the audit trail.", "success");
     } else if (result.paymentOutcome === "OUTCOME_UNCERTAIN" || result.task?.captureStatus === "UNKNOWN" || result.task?.captureStatus === "IN_PROGRESS") {
       message("Capture outcome is uncertain. The amount remains reserved; reconcile the existing attempt before any further payment action.", "error");
     } else if (saved.task?.verification === "REVIEW") {
