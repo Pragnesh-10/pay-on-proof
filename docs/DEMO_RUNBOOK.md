@@ -41,7 +41,7 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The server accepts only loo
 
 ### One-click bounded automation demo
 
-1. Use a fresh authorized sandbox session and the same non-sensitive artifact. Configure the acceptance rules and amount, then click **Run agent workflow · capture only on PASS**.
+1. Use a fresh authorized sandbox session and the same non-sensitive artifact. Configure the acceptance rules and amount, then click **Process artifact · capture only on PASS**.
 2. Read the confirmation carefully: it names the authorization, artifact, amount, and states that a newly recorded PASS can trigger one sandbox capture. This is the explicit operator consent boundary.
 3. On a newly recorded PASS, the dashboard chains verification, task persistence, and one capture request. It then shows the task result and Proof Receipt. The backend's existing live-status, budget, unresolved-capture, and duplicate-attempt checks still govern the capture.
 4. REVIEW and FAIL are recorded without capture. If the artifact/task was already recorded, the workflow does not auto-capture it again. Use the separate capture control only after inspecting the existing record.
