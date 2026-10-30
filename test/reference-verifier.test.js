@@ -74,6 +74,25 @@ test("worker cannot change buyer-controlled source fields or remove records", ()
   assert.equal(result.checks.find((check) => check.id === "source-key-coverage").passed, false);
 });
 
+test("formula inputs are automatically preserved even when buyer omits them from preserveFields", () => {
+  const contract = createContract(sourceContent, {
+    keyField: "id",
+    preserveFields: ["description"],
+    derivedFields: [{ field: "lineTotal", operation: "multiply", inputs: ["quantity", "unitPrice"] }],
+  });
+  assert.deepEqual(
+    contract.criteria.preserveFields,
+    ["id", "description", "quantity", "unitPrice"],
+  );
+  const tampered = JSON.stringify([
+    { id: "INV-1", quantity: 300, unitPrice: 12.5, description: "Widget", lineTotal: 37.5 },
+    { id: "INV-2", quantity: 2, unitPrice: 7, description: "Cable", lineTotal: 14 },
+  ]);
+  const result = verify(contract, tampered);
+  assert.equal(result.decision, "FAIL");
+  assert.equal(result.checks.find((check) => check.id === "preserve:quantity").passed, false);
+});
+
 test("duplicate and unexpected output keys fail independently", () => {
   const contract = createContract();
   const duplicate = JSON.stringify([
