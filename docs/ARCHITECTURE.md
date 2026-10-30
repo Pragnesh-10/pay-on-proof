@@ -30,12 +30,12 @@ flowchart LR
 The reference-backed flow is the strongest current evidence-verification example. It is deliberately narrow: data reconciliation with a buyer-provided source and deterministic numeric formulas.
 
 1. **Authorize:** the buyer creates and authorizes a PayPal sandbox order. The contract route requires an active, non-voided local authorization.
-2. **Freeze the contract:** the buyer submits a source JSON/CSV file, task amount, unique key field, preserved fields, and one or more deterministic arithmetic formulas. The backend validates the source rows, unique keys, required fields, numeric formula inputs, and formula domains before storing the contract.
+2. **Freeze and reserve:** the buyer submits a source JSON/CSV file, task amount, unique key field, preserved fields, and one or more deterministic arithmetic formulas. The backend validates the source rows, unique keys, required fields, numeric formula inputs, and formula domains before storing the contract. It reserves the task amount against the authorization after accounting for completed captures, unresolved captures, and other open or pending-PASS contracts. A request that would exceed the authorization budget is rejected.
 3. **Persist the source:** the local authorization record stores normalized source rows, source metadata/digest, amount, contract criteria, and contract status. The API response returns metadata and criteria, not the stored source rows.
 4. **Submit output:** the worker submits a separate JSON/CSV output. The route loads the source rows and criteria from the stored contract. It does not accept replacement source data or contract criteria from the worker request.
 5. **Verify:** the reference verifier checks source and output key uniqueness, record count, exact key coverage, preserved source values, and derived numeric values computed from buyer-source fields. Parse errors return REVIEW; failed comparisons return FAIL.
-6. **Record once:** a contract accepts one worker submission. The resulting task and checks are persisted and included in a Proof Receipt. A revised attempt needs a newly approved contract.
-7. **Capture separately:** submission never calls PayPal. A recorded PASS is eligible for the existing capture endpoint. The operator explicitly requests capture; backend checks authorization status, amount budget, unresolved attempts, duplicate task attempts, and void state before calling PayPal.
+6. **Record once:** a contract accepts one worker submission. The resulting task and checks are persisted and included in a Proof Receipt. A revised attempt needs a newly approved contract. FAIL and REVIEW release the reservation. A PASS keeps it reserved until its capture attempt begins. An unused OPEN contract can be cancelled to release its reservation.
+7. **Capture separately:** submission never calls PayPal. A recorded PASS is eligible for the existing capture endpoint. The operator explicitly requests capture; backend checks authorization status, amount budget including all other contract reservations, unresolved attempts, duplicate task attempts, and void state before calling PayPal. Starting the capture transfers that task's reservation into the capture-attempt accounting.
 
 The verifier assumes the buyer-provided source and contract are trustworthy. It does not authenticate their issuer or validate claims outside the selected fields and formula rules.
 
@@ -113,6 +113,7 @@ An eligible PASS is not itself proof of payment success. The PayPal response and
 - State-changing routes run through a single-process mutation queue.
 - Capture attempts are persisted before the outbound capture request.
 - Amounts in `IN_PROGRESS`, `UNKNOWN`, or `PENDING` status remain reserved when calculating available funds.
+- OPEN reference contracts reserve their full agreed amount. Submitted PASS contracts remain reserved until a capture attempt is persisted; FAIL and REVIEW release the reservation. Capture routes include these reservations in their budget checks, and the authorization cannot be voided while reservations remain. Only an unused OPEN contract can be cancelled.
 - Network errors, timeouts, conflicts, throttling, and server errors are treated conservatively as uncertain.
 - Reconciliation reuses the original idempotency key and request payload or queries a known capture ID. It does not automatically continue a partially completed task sequence.
 - Void is refused while a capture is unresolved. A successful void releases only the unused authorization remainder, not money already captured.
