@@ -75,7 +75,7 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 - `GET /api/health` — backend and verifier mode.
 - `POST /api/verification-preview` — verify sample tasks without calling PayPal payment endpoints; may call Groq when configured.
 - `POST /api/artifacts/verify` — verify a JSON/CSV artifact against explicit structural criteria and return a simulation-only Proof Receipt. It does not call payment endpoints.
-- `POST /api/authorizations/:authorizationId/artifact-tasks` — attach an artifact verification to a recorded sandbox authorization without capturing money. The dashboard's confirmed agent workflow chains this save with the next endpoint only for a newly recorded PASS.
+- `POST /api/authorizations/:authorizationId/artifact-tasks` — attach an artifact verification to a recorded sandbox authorization without capturing money. The dashboard's confirmed artifact-processing workflow chains this save with the next endpoint only for a newly recorded PASS.
 - `POST /api/authorizations/:authorizationId/artifact-tasks/:taskId/capture` — capture only a recorded PASS artifact task after live status, budget, unresolved-capture, and duplicate-attempt checks.
 - `POST /api/authorizations/:authorizationId/reference-contracts` — freeze a buyer-controlled source dataset, task amount, key field, preserved fields, and calculation rules on an active sandbox authorization.
 - `POST /api/authorizations/:authorizationId/reference-contracts/:contractId/submit` — independently compare one worker output against the stored buyer source and contract; returns PASS/FAIL/REVIEW and a Proof Receipt without making a payment request. A separate capture action is required for a recorded PASS.
