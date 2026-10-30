@@ -31,6 +31,7 @@ jobs:
           node --check lib/proof-receipt.js
           node --check lib/scenario-simulator.js
           node --check lib/artifact-verifier.js
+          node --check lib/reference-verifier.js
           node --check scripts/evaluate-groq.js
           node --check scripts/groq-smoke.js
           node -e 'const fs=require("node:fs"); const vm=require("node:vm"); const html=fs.readFileSync("public/index.html","utf8"); const start=html.indexOf("<script>"); const end=html.indexOf("</script>", start + 8); if(start<0 || end<0) throw new Error("Dashboard script not found"); new vm.Script(html.slice(start + 8, end)); console.log("Dashboard JavaScript syntax OK");'
