@@ -287,6 +287,10 @@ app.get("/api/health", (_req, res) => {
     aiModel: aiConfigured
       ? process.env.GROQ_MODEL || "openai/gpt-oss-20b"
       : null,
+    aiWorkerEnabled: GROQ_AI_WORKER_ENABLED && Boolean(GROQ_WORKER_API_KEY),
+    aiWorkerModel: GROQ_AI_WORKER_ENABLED && GROQ_WORKER_API_KEY
+      ? process.env.GROQ_WORKER_MODEL || process.env.GROQ_MODEL || "openai/gpt-oss-20b"
+      : null,
   });
 });
 

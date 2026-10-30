@@ -6,9 +6,9 @@
 
 ## Hackathon positioning
 
-The PayPal AI Hackathon does not prescribe product tracks. The most defensible current award positioning is **Best Use of PayPal + AI**. The existing controlled demo uses Groq for one narrow advisory semantic review, while backend rules control payment execution. The new reference-backed data workflow adds a stronger, deterministic proof path.
+The PayPal AI Hackathon does not prescribe product tracks. The most defensible current award positioning is **Best Use of PayPal + AI**. The project now includes an experimental bounded Groq worker that generates a candidate invoice transformation from a buyer-approved reference contract. A separate deterministic verifier checks the actual output, and backend rules control payment execution.
 
-Do not claim a fully autonomous worker agent or a complete agentic marketplace yet. The current project does not generate the worker's deliverable with an AI agent, and the payment demo does not disburse funds to a separate contractor payee. Those remain future integrations.
+Do not claim a fully autonomous marketplace agent or complete agentic commerce flow. The worker is an operator-triggered, bounded structured-data helper; it does not negotiate tasks, interact with a worker account, or disburse funds to a separate contractor payee.
 
 ## The problem
 
@@ -22,7 +22,8 @@ Pay-on-Proof combines three parts:
 
 1. **Buyer-approved task contract.** The buyer uploads a source dataset and freezes the amount, key field, fields that must remain unchanged, and deterministic formula rules on a local PayPal sandbox authorization.
 2. **Independent output verification.** The worker submits a JSON or CSV result separately. The backend uses the previously stored source rows and contract. It checks unique record keys, complete key coverage, unchanged source fields, and calculated numeric outputs. It does not accept worker-supplied `passed: true` flags.
-3. **Payment policy and evidence record.** Verification returns PASS or FAIL; unparseable output returns REVIEW. Submission itself never calls PayPal. Only a stored PASS task is eligible for a separate, explicitly confirmed partial capture after live authorization, budget, duplicate-attempt, and unresolved-capture checks. A completed capture can be linked to a live PayPal dispute by matching the seller transaction ID to the recorded capture ID. The app then prepares a merchant-review evidence package and, when PayPal explicitly requests `OTHER` evidence, can submit a short `OTHER` note to the sandbox.
+3. **Optional AI worker and independent verification.** After explicit consent, the experimental Groq worker can generate candidate JSON from the stored buyer source and frozen rules. It is limited to 50 source records and a 12 KB prompt. The same deterministic reference verifier used for manual output checks its record coverage, preserved fields, and calculations. The model cannot issue PASS or control payment.
+4. **Payment policy and evidence record.** Verification returns PASS or FAIL; unparseable output returns REVIEW. Submission itself never calls PayPal. Only a stored PASS task is eligible for a separate, explicitly confirmed partial capture after live authorization, budget, duplicate-attempt, and unresolved-capture checks. A completed capture can be linked to a live PayPal dispute by matching the seller transaction ID to the recorded capture ID. The app then prepares a merchant-review evidence package and, when PayPal explicitly requests `OTHER` evidence, can submit a short `OTHER` note to the sandbox.
 
 ### Worked example: invoice line reconciliation
 
@@ -81,6 +82,7 @@ See [Architecture](ARCHITECTURE.md) for sequence and trust boundaries.
 - PASS/FAIL decisions for parseable output; malformed output routes to REVIEW.
 - Stored reference-backed tasks are eligible for the existing explicit PASS-only capture endpoint.
 - Existing controlled demo with optional Groq review for Task A, deterministic fixture checks for B/C, and partial capture.
+- Experimental consent-gated Groq worker that generates bounded structured output for a reference contract; output is independently checked by the deterministic verifier and never triggers capture by itself.
 - Capture idempotency IDs, pre-call persistence, uncertain-outcome tracking, reconciliation, and void safeguards.
 - Human-review queue, scenario simulator, Proof Receipts, and receipt hash validation.
 - Dispute evidence package generation, live PayPal dispute lookup, and opt-in sandbox submission of `OTHER` notes only when requested by PayPal.
@@ -90,7 +92,7 @@ See [Architecture](ARCHITECTURE.md) for sequence and trust boundaries.
 
 The reference verifier is deterministic, not AI. Its assurance is bounded to the buyer source rows and contract rules it receives. A buyer who supplies false source data or weak acceptance criteria can still create a bad contract. The prototype has not authenticated the buyer identity or source-system provenance.
 
-The optional Groq reviewer handles one narrow semantic check in the controlled report task. It does not prove factual truth and has no payment tools. The current synthetic evaluation fixture set is not a representative benchmark; no production accuracy percentage is claimed.
+The optional Groq reviewer handles one narrow semantic check in the controlled report task. The experimental Groq worker can propose a structured invoice transformation from the frozen buyer source after explicit consent. Its result is only a candidate: the deterministic verifier checks the actual output, and AI errors do not produce a PASS. Neither AI component has PayPal tools or payment authority. The worker uses a 50-record limit, a 12 KB prompt limit, and a 20 KB output limit. The current synthetic fixture sets are not representative benchmarks; no production accuracy percentage is claimed.
 
 The current PayPal order captures to the merchant/payee associated with that order. This prototype does not implement a separate worker payee, seller onboarding, marketplace split, or payout/disbursement flow. Therefore it demonstrates conditional capture, not a complete buyer-to-contractor settlement product.
 

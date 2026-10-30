@@ -6,9 +6,9 @@ A PayPal sandbox prototype for **verified digital-work payments and merchant dis
 
 ## Hackathon positioning
 
-The hackathon does not prescribe product tracks. The most defensible current award positioning is **Best Use of PayPal + AI**: the prototype combines AI-assisted review in one controlled demo task with backend-enforced PayPal payment gates. The reference-backed verifier is deterministic and independently checks a worker output against a buyer source dataset and a frozen contract.
+The hackathon does not prescribe product tracks. The most defensible current award positioning is **Best Use of PayPal + AI**: the prototype combines a bounded, optional Groq worker for candidate invoice transformation, deterministic backend verification, and guarded PayPal payment operations. The controlled report demo also includes a separate advisory semantic review.
 
-Do not claim a fully autonomous worker agent or a complete agentic marketplace yet. The project does not currently generate the worker's deliverable with an agent, and the payment demo does not disburse funds to a separate contractor payee. Those are future integrations, not implemented features.
+The AI worker is an experimental, operator-enabled helper, not a fully autonomous marketplace agent. It sends the frozen buyer source to Groq only after explicit consent, returns a candidate JSON output, and cannot decide whether the task passes or operate PayPal. The payment demo still does not disburse funds to a separate contractor payee.
 
 ## What works
 
@@ -28,6 +28,7 @@ Do not claim a fully autonomous worker agent or a complete agentic marketplace y
 - Verifies user-supplied JSON and CSV artifacts (20 KB, 500 records, and 100 columns maximum) against explicit required-field, uniqueness, numeric-field, and minimum-row criteria. Unparseable artifacts route to REVIEW.
 - Saves verified artifacts as task records on a selected sandbox authorization and allows a separate explicit capture action only for a recorded PASS artifact task.
 - Adds buyer-reference verification for JSON/CSV data-reconciliation tasks. A buyer freezes source rows, key field, preserved fields, amount, and deterministic formulas before submission. The worker output is checked for duplicate keys, missing/extra records, modified source fields, and incorrect derived values. Contract amounts reserve authorization funds before work is submitted.
+- Adds an experimental Groq worker for buyer-approved reference contracts. It is disabled by default, requires explicit consent before sending source rows to Groq, accepts at most 50 records and a 12 KB prompt, and returns candidate JSON only. The backend deterministic verifier decides PASS/FAIL/REVIEW; the worker has no payment tools.
 - Stores the buyer source rows in the local state file so the worker submission route uses the frozen contract rather than replacement rules or source data supplied with the output. OPEN contracts reserve funds, and a submitted PASS remains reserved until capture starts. FAIL/REVIEW releases the reservation. An unused OPEN contract can be cancelled; submitted contracts remain immutable.
 - Adds a confirmed artifact-processing workflow that chains verification, task recording, and one capture request for a newly recorded PASS. REVIEW and FAIL stop before capture; reused task records are never auto-captured again, and uncertain outcomes require reconciliation.
 - Recomputes Proof Receipt integrity hashes, with an optional comparison against the original artifact bytes.
@@ -74,13 +75,14 @@ This is a small demo policy, not a calibrated fraud, truth, or quality guarantee
 
 ## API overview
 
-- `GET /api/health` — backend and verifier mode.
+- `GET /api/health` — backend, verifier mode, and whether the optional AI worker is enabled/configured.
 - `POST /api/verification-preview` — verify sample tasks without calling PayPal payment endpoints; may call Groq when configured.
 - `POST /api/artifacts/verify` — verify a JSON/CSV artifact against explicit structural criteria and return a simulation-only Proof Receipt. It does not call payment endpoints.
 - `POST /api/authorizations/:authorizationId/artifact-tasks` — attach an artifact verification to a recorded sandbox authorization without capturing money. The dashboard's confirmed artifact-processing workflow chains this save with the next endpoint only for a newly recorded PASS.
 - `POST /api/authorizations/:authorizationId/artifact-tasks/:taskId/capture` — capture only a recorded PASS artifact task after live status, budget, unresolved-capture, and duplicate-attempt checks.
 - `POST /api/authorizations/:authorizationId/reference-contracts` — freeze a buyer-controlled source dataset, task amount, key field, preserved fields, and calculation rules on an active sandbox authorization.
 - `POST /api/authorizations/:authorizationId/reference-contracts/:contractId/submit` — independently compare one worker output against the stored buyer source and contract; returns PASS/FAIL/REVIEW and a Proof Receipt without making a payment request. A separate capture action is required for a recorded PASS.
+- `POST /api/authorizations/:authorizationId/reference-contracts/:contractId/ai-worker-submit` — with server feature flag and explicit request consent, send the stored buyer source and rules to Groq, independently verify its candidate output, and record the single contract submission. It does not capture funds.
 - `POST /api/authorizations/:authorizationId/reference-contracts/:contractId/cancel` — cancel an unused OPEN contract and release its local authorization-budget reservation without contacting PayPal.
 - `POST /api/receipts/verify` — independently check receipt hashes and optionally compare supplied original artifact bytes.
 - `GET /api/authorizations/:authorizationId/tasks/:taskId/disputes/:disputeId/evidence-package` — retrieve the live PayPal dispute, require its seller transaction to match the task capture, and prepare a reviewable evidence package without submitting it.
@@ -120,6 +122,7 @@ The repository is released under the [MIT License](LICENSE).
 - Proof Receipt SHA-256 hashes and the receipt verifier detect recorded changes; they do not prove evidence truth or independently trusted provenance. Structural artifact checks assess format and configured rules, not domain correctness. Reference-backed checks verify only the explicitly contracted fields and formulas; they do not authenticate the buyer source.
 - Dispute evidence packages are preparation aids, not a guarantee of a favorable outcome. They do not prove delivery or source authenticity. The current PayPal integration submits only a merchant-reviewed `OTHER` note when PayPal requests it; it does not upload original source/output files, handle every evidence type, or automatically resolve disputes.
 - Store only synthetic or non-sensitive evidence in the prototype. Artifact task records store the file digest and a preview of up to three rows, not the full uploaded artifact; avoid confidential fields.
+- The experimental AI worker sends the stored buyer source rows and contract criteria to Groq only when `GROQ_AI_WORKER_ENABLED=true` and the request includes explicit consent. It is limited to 50 rows and a 12 KB serialized prompt, and calls only the official Groq endpoint (loopback overrides are test-only). Do not send personal, confidential, regulated, or customer production data.
 - A capture timeout or server error is treated as uncertain and reserves the amount. Use the dashboard's reconciliation action, which checks a known capture ID or replays the exact original request ID and payload. PayPal documents idempotency for repeated requests using the same `PayPal-Request-Id`; still inspect transaction status before voiding the remainder.
 - If reconciliation resolves a run that stopped midway, the app intentionally does not resume the remaining tasks automatically. Review the task log and PayPal state, then void the unused remainder or start a fresh sandbox authorization for another complete run.
 - A successful authorization void releases the remaining authorization; it does not reverse completed captures.

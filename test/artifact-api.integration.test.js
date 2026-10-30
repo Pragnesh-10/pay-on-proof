@@ -465,6 +465,46 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   );
   assert.equal(replaySubmission.status, 409, "a frozen contract accepts only one worker submission");
 
+  const aiWorkerContract = await createReferenceContract("2.00");
+  assert.equal(aiWorkerContract.status, 200, JSON.stringify(aiWorkerContract.data));
+  const aiWorkerRoute = "/api/authorizations/AUTH_TEST_1/reference-contracts/" +
+    encodeURIComponent(aiWorkerContract.data.contract.contractId) + "/ai-worker-submit";
+  const missingAiConsent = await requestJson(appBaseUrl, aiWorkerRoute, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  assert.equal(missingAiConsent.status, 400);
+  assert.equal(aiWorkerCallCount, 0, "buyer data must not be sent without explicit consent");
+
+  const generatedAiWorkerSubmission = await requestJson(appBaseUrl, aiWorkerRoute, {
+    method: "POST",
+    body: JSON.stringify({ consentToSendBuyerData: true }),
+  });
+  assert.equal(generatedAiWorkerSubmission.status, 200, JSON.stringify(generatedAiWorkerSubmission.data));
+  assert.equal(generatedAiWorkerSubmission.data.task.verification, "FAIL",
+    "the deterministic verifier must reject the AI-generated incorrect total");
+  assert.equal(generatedAiWorkerSubmission.data.task.verificationSource, "reference-backed");
+  assert.equal(generatedAiWorkerSubmission.data.aiWorker.provider, "groq");
+  assert.equal(generatedAiWorkerSubmission.data.aiWorker.model, "test-worker-model");
+  assert.equal(generatedAiWorkerSubmission.data.paymentOutcome, "NOT_ATTEMPTED");
+  assert.equal(
+    generatedAiWorkerSubmission.data.checks.find((check) => check.id === "derived:lineTotal").passed,
+    false,
+  );
+  assert.equal(
+    generatedAiWorkerSubmission.data.task.evidence.workerGeneration.outputSha256,
+    generatedAiWorkerSubmission.data.aiWorker.outputSha256,
+  );
+  assert.equal(aiWorkerCallCount, 1);
+  assert.equal(captureCount, 1, "AI worker generation and deterministic verification must not call PayPal capture");
+
+  const duplicateAiWorkerSubmission = await requestJson(appBaseUrl, aiWorkerRoute, {
+    method: "POST",
+    body: JSON.stringify({ consentToSendBuyerData: true }),
+  });
+  assert.equal(duplicateAiWorkerSubmission.status, 409, "a contract may be submitted only once");
+  assert.equal(aiWorkerCallCount, 1, "a submitted contract must not trigger another AI request");
+
   const passContract = await createReferenceContract("11.00");
   assert.equal(passContract.status, 200);
   const goodWorkerOutput = JSON.stringify([
@@ -579,45 +619,7 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   assert.equal(duplicateEvidenceSubmission.status, 409);
   assert.equal(evidenceSubmissionCount, 1, "duplicate evidence submission must be blocked locally");
 
-  const aiWorkerContract = await createReferenceContract("2.00");
-  assert.equal(aiWorkerContract.status, 200, JSON.stringify(aiWorkerContract.data));
-  const aiWorkerRoute = "/api/authorizations/AUTH_TEST_1/reference-contracts/" +
-    encodeURIComponent(aiWorkerContract.data.contract.contractId) + "/ai-worker-submit";
-  const missingAiConsent = await requestJson(appBaseUrl, aiWorkerRoute, {
-    method: "POST",
-    body: JSON.stringify({}),
-  });
-  assert.equal(missingAiConsent.status, 400);
-  assert.equal(aiWorkerCallCount, 0, "buyer data must not be sent without explicit consent");
 
-  const generatedAiWorkerSubmission = await requestJson(appBaseUrl, aiWorkerRoute, {
-    method: "POST",
-    body: JSON.stringify({ consentToSendBuyerData: true }),
-  });
-  assert.equal(generatedAiWorkerSubmission.status, 200, JSON.stringify(generatedAiWorkerSubmission.data));
-  assert.equal(generatedAiWorkerSubmission.data.task.verification, "FAIL",
-    "the deterministic verifier must reject the AI-generated incorrect total");
-  assert.equal(generatedAiWorkerSubmission.data.task.verificationSource, "reference-backed");
-  assert.equal(generatedAiWorkerSubmission.data.aiWorker.provider, "groq");
-  assert.equal(generatedAiWorkerSubmission.data.aiWorker.model, "test-worker-model");
-  assert.equal(generatedAiWorkerSubmission.data.paymentOutcome, "NOT_ATTEMPTED");
-  assert.equal(
-    generatedAiWorkerSubmission.data.checks.find((check) => check.id === "derived:lineTotal").passed,
-    false,
-  );
-  assert.equal(
-    generatedAiWorkerSubmission.data.task.evidence.workerGeneration.outputSha256,
-    generatedAiWorkerSubmission.data.aiWorker.outputSha256,
-  );
-  assert.equal(aiWorkerCallCount, 1);
-  assert.equal(captureCount, 2, "AI worker generation and deterministic verification must not call PayPal capture");
-
-  const duplicateAiWorkerSubmission = await requestJson(appBaseUrl, aiWorkerRoute, {
-    method: "POST",
-    body: JSON.stringify({ consentToSendBuyerData: true }),
-  });
-  assert.equal(duplicateAiWorkerSubmission.status, 409, "a contract may be submitted only once");
-  assert.equal(aiWorkerCallCount, 1, "a submitted contract must not trigger another AI request");
 
   const blockedByOpenContract = await requestJson(
     appBaseUrl,

@@ -39,6 +39,16 @@ The reference-backed flow is the strongest current evidence-verification example
 
 The verifier assumes the buyer-provided source and contract are trustworthy. It does not authenticate their issuer or validate claims outside the selected fields and formula rules.
 
+## Optional AI worker path
+
+1. The dashboard displays an experimental AI-worker action for an OPEN reference contract. The operator must confirm that the frozen buyer source rows and contract rules may be sent to Groq; the server must also have `GROQ_AI_WORKER_ENABLED=true` and a worker API key.
+2. The server loads the buyer source rows and criteria from local state. The request cannot replace the source, formulas, or amount. The worker accepts no more than 50 records and a 12 KB serialized prompt; output is bounded to 20 KB.
+3. The worker sends the structured transformation request to the official Groq Chat Completions endpoint. Source values are treated as untrusted data, not instructions. The result must be JSON with a bounded `records` array. Provider errors, refusals, invalid JSON, timeouts, and output-shape failures do not consume the contract.
+4. The generated output is passed into the same deterministic reference verifier used for manual submissions. The LLM does not return or control a PASS/FAIL decision. The task stores provider/model/prompt version/output hash/latency/token usage as provenance.
+5. The contract accepts one generated submission. A PASS becomes eligible for the existing separate, explicitly confirmed capture action. FAIL and REVIEW do not capture. AI generation and verification do not call PayPal.
+
+The worker is an experimental data-transformation helper, not a general autonomous agent. Buyer data is sent to an external model provider only after explicit operator consent. Use synthetic or non-sensitive data. The server restricts outbound requests to the official Groq endpoint; loopback overrides are permitted only in automated tests.
+
 ## PayPal dispute-readiness workflow
 
 1. A merchant selects a task whose PayPal capture status is `COMPLETED` and enters a dispute ID.
@@ -64,6 +74,7 @@ The controlled task fixtures demonstrate payment orchestration and recovery, not
 
 - **Structural artifact verifier:** accepts bounded JSON/CSV output and checks configured required fields, uniqueness, numeric values, and row count. This is useful for structural validation but does not establish domain correctness.
 - **Groq reviewer:** advisory semantic check for Task A only. The model has no PayPal tools; its structured response is revalidated by the backend.
+- **Optional Groq worker:** generates a candidate structured transformation from the frozen reference contract only after explicit data-sharing consent. Its output is not trusted; the deterministic reference verifier makes the acceptance decision.
 - **Human review:** recorded REVIEW tasks can be approved or rejected with notes. Approval re-runs the relevant deterministic gate and checks current PayPal status, budget, and unresolved captures. Reviewer identity is not authenticated.
 - **Scenario simulator:** uses synthetic PASS/REVIEW/FAIL fixtures, marks receipts SIMULATION_ONLY, and never calls PayPal payment endpoints.
 - **Proof Receipt:** records evidence, acceptance criteria, verifier provenance/checks, review outcome, payment status, and events. SHA-256 hashes detect changes to recorded snapshots; they do not prove truth or authenticated provenance.
@@ -78,7 +89,8 @@ The controlled task fixtures demonstrate payment orchestration and recovery, not
 | Worker output | Untrusted. The backend parses it and checks it against the stored buyer source and frozen contract. |
 | Reference verifier | Recomputes key coverage, preserved fields, and configured formulas. It proves only those contracted comparisons. |
 | Structural artifact verifier | Checks structure and configured fields, not factual correctness. |
-| Groq | Advisory semantic assessment of Task A only. Output is structured and revalidated; it has no payment tools. |
+| Groq reviewer | Advisory semantic assessment of Task A only. Output is structured and revalidated; it has no payment tools. |
+| Optional Groq worker | Produces a candidate JSON transformation from consented buyer source data; the deterministic verifier decides acceptance. It has no PayPal credentials or payment tools. |
 | Express backend | Holds credentials and enforces state checks, amount limits, idempotency, and PASS-only capture gates. |
 | PayPal sandbox | Authoritative external state for order, authorization, capture, and void status. |
 | JSON state | Local state and audit aid for this single-process demo. It is not a transactional production datastore. |

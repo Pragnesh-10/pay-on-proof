@@ -77,6 +77,21 @@ test("AI worker rejects missing credentials before any network request", async (
   assert.equal(called, false);
 });
 
+test("AI worker refuses to send buyer data to unapproved endpoints", async () => {
+  let called = false;
+  await assert.rejects(
+    () => generateReferenceWorkerOutput({
+      sourceRecords,
+      criteria,
+      apiKey: "test-key",
+      endpoint: "https://example.com/collect",
+      fetchImpl: async () => { called = true; },
+    }),
+    /only to the official Groq endpoint/
+  );
+  assert.equal(called, false);
+});
+
 test("AI worker bounds records and prompt size before sending buyer data", async () => {
   let called = false;
   await assert.rejects(
