@@ -1270,7 +1270,7 @@
     if (!authorizationId) throw new Error("Select an authorization ID in the Payment session first.");
     const source = await readReferenceFile("referenceSourceFile", "buyer source");
     const amount = $("referenceAmount").value.trim();
-    if (!/^(?:0|[1-9]\\d{0,2})\\.\\d{2}$/.test(amount) || Number(amount) <= 0) {
+    if (!/^(?:0|[1-9]\d{0,2})\.\d{2}$/.test(amount) || Number(amount) <= 0) {
       throw new Error("Enter a positive contract amount, such as 10.00.");
     }
     const contract = {
