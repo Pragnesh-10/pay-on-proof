@@ -425,12 +425,16 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   const overBudgetContract = await createReferenceContract("25.00");
   assert.equal(overBudgetContract.status, 409, "new contracts must account for existing captures and reservations");
 
+  const reservedArtifactContent = JSON.stringify([
+    { id: "R-BUDGET-1", score: 0.91 },
+    { id: "R-BUDGET-2", score: 0.84 },
+  ]);
   const reservedArtifact = await requestJson(appBaseUrl, "/api/authorizations/AUTH_TEST_1/artifact-tasks", {
     method: "POST",
     body: JSON.stringify({
       fileName: "reserved-budget.json",
       format: "json",
-      content: passContent,
+      content: reservedArtifactContent,
       amount: "5.00",
       criteria: passingCriteria,
     }),
