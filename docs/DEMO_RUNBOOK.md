@@ -78,6 +78,19 @@ The reference verification and submission routes make no payment calls. Only the
 
 The reviewer identity is not authenticated in this prototype. Do not expose the review endpoint publicly or use it for real funds.
 
+## PayPal dispute evidence demo (optional)
+
+This flow requires a sandbox merchant REST app with the **Disputes** feature enabled and a sandbox dispute whose seller transaction ID matches the completed task capture. Sandbox dispute creation uses PayPal's buyer-side test flow and may require a separate buyer-side auth assertion. Follow [Dispute evidence setup](DISPUTE_EVIDENCE.md) before attempting this section.
+
+1. Capture a reference-backed task in the sandbox and keep its completed capture ID.
+2. Create a matching dispute using PayPal's documented sandbox transaction/dispute process. Do not use a dispute ID tied to another payment.
+3. In the result panel for the completed task, click **Prepare PayPal dispute evidence** and enter the dispute ID.
+4. Inspect the fetched dispute reason, seller response deadline, requested evidence types, transaction match, and merchant note draft. Download the JSON evidence package.
+5. If the backend reports that PayPal is waiting for seller `OTHER` evidence, review the generated note carefully. To submit it, enable `PAYPAL_DISPUTES_EVIDENCE_SUBMISSION_ENABLED=true`, restart the local server, and explicitly confirm the dashboard prompt.
+6. The app records the submission attempt before calling PayPal. If the outcome is uncertain, inspect the PayPal dispute directly. Do not retry blindly.
+
+Only `OTHER` notes are supported. The app does not upload attachments or synthesize fulfillment, tracking, or refund evidence. A successful API response means PayPal accepted the evidence submission request, not that the merchant won the dispute.
+
 ## Full sandbox payment demo
 
 Only continue after the preview is behaving correctly.
