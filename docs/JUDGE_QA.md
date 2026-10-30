@@ -20,7 +20,7 @@ The hackathon does not prescribe tracks. The most defensible current target is *
 
 ## Is this really an AI agent?
 
-Not yet in the full autonomous-worker sense. The current dashboard orchestrates bounded actions after operator input. Groq provides an advisory semantic review for one predefined report task; the new reference-backed data verifier is deterministic. The accurate description is **evidence-gated payment automation with optional AI-assisted review**. A future worker agent should create the output, while a separate verifier checks it and a separate policy service controls payment.
+It is a bounded, operator-triggered AI worker, not a fully autonomous marketplace agent. With explicit consent, Groq generates candidate JSON from the frozen buyer source and contract rules. The backend then runs the deterministic reference verifier, which alone decides PASS/FAIL/REVIEW. The worker is limited to 50 records and a 12 KB prompt, and it has no PayPal tools. The separate payment policy requires a stored PASS and an explicit capture action. The accurate description is **evidence-gated task payment with an optional AI-generated worker submission and independent verification**.
 
 ## How does the independent verifier work?
 
@@ -40,11 +40,11 @@ A reference contract is stored before submission and accepts one submission. The
 
 ## Does the system use AI to verify the invoice output?
 
-No. The invoice reconciliation verifier is deterministic. It performs precise comparisons and arithmetic. Groq is used only for the narrow semantic review of Task A in the separate predefined report demo. We avoid sending simple calculations to an LLM because deterministic code is more reliable for those checks.
+The invoice verifier is deterministic. The optional Groq worker can generate a candidate invoice transformation, but it does not verify itself. The same backend verifier checks record coverage, preserved source fields, and formula calculations. We use deterministic code for correctness-sensitive arithmetic because it is easier to test and reproduce.
 
 ## Does the AI have payment tools?
 
-No. Groq receives a bounded verification request and returns an advisory structured decision. It does not receive PayPal credentials or payment tools. The backend validates the response and independently enforces the capture policy.
+No. The Groq worker receives only the stored buyer source rows and frozen transformation rules after explicit consent. It returns candidate data, not a payment decision. The Groq API key stays on the server, and the model has no PayPal credentials or tools. The backend verifier and separate capture policy remain authoritative.
 
 ## Can the worker receive the captured funds?
 
