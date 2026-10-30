@@ -113,6 +113,7 @@ Failure recovery is covered with a local mock-provider integration test: a lost 
 - [Architecture](docs/ARCHITECTURE.md) — components, decision flow, data persistence, and trust boundaries.
 - [Judge Q&A](docs/JUDGE_QA.md) — concise, honest answers to likely technical and product questions.
 - [Dispute evidence guide](docs/DISPUTE_EVIDENCE.md) — PayPal sandbox setup, matching rules, supported evidence, and explicit submission safeguards.
+- [Pitch and demo script](docs/PITCH.md) — timed presentation, live demo, fallback plan, and safe judge claims.
 
 The repository is released under the [MIT License](LICENSE).
 
