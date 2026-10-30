@@ -2319,8 +2319,18 @@ app.post(
     if (!PAYPAL_DISPUTES_EVIDENCE_SUBMISSION_ENABLED) {
       return res.status(403).json({ error: "Dispute evidence submission is disabled. Set PAYPAL_DISPUTES_EVIDENCE_SUBMISSION_ENABLED=true to enable the sandbox-only action." });
     }
-    if (!/sandbox/i.test(PAYPAL_BASE_URL)) {
-      return res.status(403).json({ error: "Dispute evidence submission is restricted to a PayPal sandbox API base URL." });
+    let sandboxApiUrl = false;
+    try {
+      const paypalUrl = new URL(PAYPAL_BASE_URL);
+      const isPaypalSandboxHost = /(^|\\.)sandbox(\\.|$)/i.test(paypalUrl.hostname);
+      const isLoopbackTestHost = process.env.NODE_ENV === "test" &&
+        ["127.0.0.1", "::1", "localhost"].includes(paypalUrl.hostname);
+      sandboxApiUrl = isPaypalSandboxHost || isLoopbackTestHost;
+    } catch {
+      sandboxApiUrl = false;
+    }
+    if (!sandboxApiUrl) {
+      return res.status(403).json({ error: "Dispute evidence submission is restricted to a PayPal sandbox API base URL. Loopback mock URLs are permitted only when NODE_ENV=test." });
     }
 
     let context;
