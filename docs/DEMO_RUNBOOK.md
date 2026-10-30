@@ -68,6 +68,20 @@ This is the strongest proof-of-work workflow. Use synthetic files from the repos
 
 The reference verification and submission routes make no payment calls. Only the separate capture action can move funds, and only for a stored PASS task after backend checks.
 
+### Optional AI worker experiment
+
+This experimental flow sends buyer source rows to Groq. Use only the repository's synthetic invoice fixture or other non-sensitive sample data.
+
+1. Set `GROQ_AI_WORKER_ENABLED=true` in `.env`. Set `GROQ_WORKER_API_KEY` or reuse `GROQ_API_KEY`. Optionally set `GROQ_WORKER_MODEL`; the default is the configured `GROQ_MODEL` or `openai/gpt-oss-20b`. Leave `GROQ_WORKER_API_URL` blank for normal use; non-Groq endpoint overrides are rejected outside automated tests.
+2. Restart the local server. Check `GET /api/health` and confirm `aiWorkerEnabled` is true.
+3. Create a new buyer reference contract using synthetic source rows. The AI worker consumes the contract's one permitted submission.
+4. Click **Generate with AI worker + verify**. Read the data-sharing confirmation carefully. The frozen buyer rows and rules are sent to Groq only after you confirm. Cancel if the data is sensitive or you do not have permission to share it.
+5. Inspect the worker model, output hash, duration, and individual deterministic checks. The AI does not decide PASS/FAIL. An incorrect generated total should be rejected; a correct generated total can pass.
+6. If the result is PASS, inspect the Proof Receipt and use the existing separate **Capture verified task** control only after explicit confirmation. FAIL and REVIEW never trigger capture.
+7. If Groq is unavailable, times out, refuses, or returns invalid JSON, no submission is recorded and the contract remains available for manual output. Once a generated output has been recorded as PASS/FAIL/REVIEW, that contract cannot be reused.
+
+The AI worker is disabled by default, bounded to 50 rows, 12 KB of serialized buyer input, and 20 KB of generated output. It has no PayPal tools. A candidate output may be wrong; the deterministic verifier remains the authority.
+
 ## New product flows: simulator, review, and receipts
 
 1. Choose **Simulate PASS**, **Simulate REVIEW**, and **Simulate FAIL**. Each scenario uses synthetic evidence and reports the hypothetical payment policy. It explicitly identifies itself as simulation-only; no PayPal endpoint is called and the actual captured amount remains $0.
