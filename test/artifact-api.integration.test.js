@@ -212,6 +212,7 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   const appProcess = spawn(process.execPath, [path.join(__dirname, "..", "server.js")], {
     env: {
       ...process.env,
+      NODE_ENV: "test",
       HOST: "127.0.0.1",
       PORT: String(appPort),
       PAYPAL_BASE_URL: "http://127.0.0.1:" + paypalPort,
