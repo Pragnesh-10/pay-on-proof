@@ -16,6 +16,7 @@ const { verifyArtifact } = require("./lib/artifact-verifier");
 const { prepareReferenceContract, verifyReferenceSubmission } = require("./lib/reference-verifier");
 const { listScenarios, simulateScenario } = require("./lib/scenario-simulator");
 const { createDisputeEvidencePackage } = require("./lib/dispute-evidence");
+const { generateReferenceWorkerOutput } = require("./lib/ai-worker");
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -33,6 +34,8 @@ const {
 
 const PAYPAL_DISPUTES_EVIDENCE_SUBMISSION_ENABLED =
   process.env.PAYPAL_DISPUTES_EVIDENCE_SUBMISSION_ENABLED === "true";
+const GROQ_AI_WORKER_ENABLED = process.env.GROQ_AI_WORKER_ENABLED === "true";
+const GROQ_WORKER_API_KEY = process.env.GROQ_WORKER_API_KEY || process.env.GROQ_API_KEY;
 
 const LOCAL_BASE_URL = `http://127.0.0.1:${PORT}`;
 
@@ -1039,6 +1042,134 @@ app.post("/api/authorizations/:authorizationId/reference-contracts/:contractId/s
     });
   } catch (error) {
     if (error instanceof TypeError) return res.status(400).json({ error: error.message });
+    sendError(res, error);
+  }
+});
+
+
+// Optional AI worker: generates a candidate deliverable, then the independent
+// reference verifier makes the decision. Buyer data is sent only with explicit
+// request consent and when the feature is enabled by the local operator.
+app.post("/api/authorizations/:authorizationId/reference-contracts/:contractId/ai-worker-submit", async (req, res) => {
+  const { authorizationId, contractId } = req.params;
+  if (!validId(authorizationId) || !validId(contractId)) {
+    return res.status(400).json({ error: "Invalid authorization or contract ID." });
+  }
+  if (req.body?.consentToSendBuyerData !== true) {
+    return res.status(400).json({
+      error: "Explicit consentToSendBuyerData=true is required before source rows are sent to Groq.",
+    });
+  }
+  if (!GROQ_AI_WORKER_ENABLED) {
+    return res.status(403).json({
+      error: "The experimental AI worker is disabled. Set GROQ_AI_WORKER_ENABLED=true locally after reviewing the data-sharing notice.",
+    });
+  }
+  if (!GROQ_WORKER_API_KEY) {
+    return res.status(503).json({
+      error: "The AI worker is not configured. Set GROQ_WORKER_API_KEY or GROQ_API_KEY.",
+    });
+  }
+
+  const auth = state.authorizations[authorizationId];
+  const contract = auth?.referenceContracts?.[contractId];
+  if (!auth || !contract) {
+    return res.status(404).json({ error: "Buyer-approved reference contract was not found." });
+  }
+  if (contract.status !== "OPEN") {
+    return res.status(409).json({
+      error: "This contract already has a submission. Create a newly approved contract for a revised submission.",
+    });
+  }
+
+  try {
+    // Only frozen records and criteria are used. No replacement source or
+    // formula fields from the request body are accepted.
+    const generated = await generateReferenceWorkerOutput({
+      sourceRecords: contract.sourceRecords,
+      criteria: contract.criteria,
+    });
+    const verification = verifyReferenceSubmission({
+      sourceRecords: contract.sourceRecords,
+      sourceArtifact: contract.sourceArtifact,
+      contract: contract.criteria,
+      outputFileName: generated.outputFileName,
+      outputFormat: generated.outputFormat,
+      outputContent: generated.outputContent,
+    });
+    const candidate = buildReferenceTask(verification, contract);
+    const workerGeneration = {
+      provider: generated.provider,
+      model: generated.model,
+      promptVersion: generated.promptVersion,
+      outputSha256: generated.outputSha256,
+      recordCount: generated.recordCount,
+      promptBytes: generated.promptBytes,
+      outputBytes: generated.outputBytes,
+      durationMs: generated.durationMs,
+      usage: generated.usage,
+    };
+    candidate.workerGeneration = workerGeneration;
+    candidate.evidence.workerGeneration = workerGeneration;
+    candidate.events.push({
+      type: "AI_WORKER_OUTPUT_GENERATED",
+      at: new Date().toISOString(),
+      provider: workerGeneration.provider,
+      model: workerGeneration.model,
+      promptVersion: workerGeneration.promptVersion,
+      outputSha256: workerGeneration.outputSha256,
+      recordCount: workerGeneration.recordCount,
+    });
+
+    const saved = await serializeMutation(async () => {
+      const currentAuth = state.authorizations[authorizationId];
+      const currentContract = currentAuth?.referenceContracts?.[contractId];
+      if (!currentAuth || !currentContract) {
+        const error = new Error("Buyer-approved reference contract is no longer available.");
+        error.status = 404;
+        throw error;
+      }
+      if (currentContract.status !== "OPEN") {
+        const error = new Error("This contract already has a submission. No second submission was recorded.");
+        error.status = 409;
+        throw error;
+      }
+      currentContract.status = "SUBMITTED";
+      currentContract.submissionTaskId = candidate.taskId;
+      candidate.events.push({
+        type: "REFERENCE_CONTRACT_SUBMITTED",
+        at: new Date().toISOString(),
+        contractId,
+        submittedBy: "ai-worker",
+      });
+      currentAuth.tasks = Array.isArray(currentAuth.tasks) ? currentAuth.tasks : [];
+      currentAuth.tasks.push(candidate);
+      currentAuth.updatedAt = new Date().toISOString();
+      saveState();
+      return { auth: currentAuth, task: candidate };
+    });
+
+    const proofReceipt = createProofReceipt({
+      authorizationId,
+      currency: saved.auth.currency || "USD",
+      authorizationStatus: saved.auth.status || null,
+      task: saved.task,
+    });
+    res.status(200).json({
+      authorizationId,
+      contractId,
+      aiWorker: workerGeneration,
+      task: saved.task,
+      checks: verification.checks,
+      proofReceipt,
+      paymentOutcome: "NOT_ATTEMPTED",
+      message: verification.reason +
+        " The AI generated a candidate output; the deterministic verifier made the decision. No PayPal payment request was made.",
+    });
+  } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     sendError(res, error);
   }
 });

@@ -73,6 +73,7 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   let nextCaptureMode = "normal";
   let voidCount = 0;
   let evidenceSubmissionCount = 0;
+  let aiWorkerCallCount = 0;
   const providerCaptures = new Map();
 
   const paypalMock = http.createServer(async (req, res) => {
@@ -84,6 +85,24 @@ test("artifact API previews without payment, blocks failed captures, and verifie
       contentType: req.headers["content-type"] || null,
       requestId: req.headers["paypal-request-id"] || null,
     });
+
+    if (req.method === "POST" && req.url === "/openai/v1/chat/completions") {
+      aiWorkerCallCount += 1;
+      return sendJson(res, 200, {
+        model: "test-worker-model",
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              records: [
+                { id: "INV-1", quantity: 3, unitPrice: 12.5, description: "Widget", lineTotal: 999 },
+                { id: "INV-2", quantity: 2, unitPrice: 7, description: "Cable", lineTotal: 14 },
+              ],
+            }),
+          },
+        }],
+        usage: { prompt_tokens: 100, completion_tokens: 50 },
+      });
+    }
 
     if (req.method === "POST" && req.url === "/v1/oauth2/token") {
       return sendJson(res, 200, { access_token: "test-token", expires_in: 3600 });
@@ -221,6 +240,9 @@ test("artifact API previews without payment, blocks failed captures, and verifie
       PAYONPROOF_STATE_FILE: stateFile,
       PAYONPROOF_TEMP_FILE: path.join(tempDir, "state.tmp"),
       PAYPAL_DISPUTES_EVIDENCE_SUBMISSION_ENABLED: "true",
+      GROQ_AI_WORKER_ENABLED: "true",
+      GROQ_WORKER_API_KEY: "groq-worker-test-key",
+      GROQ_WORKER_API_URL: "http://127.0.0.1:" + paypalPort + "/openai/v1/chat/completions",
       GROQ_API_KEY: "",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -556,6 +578,46 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   );
   assert.equal(duplicateEvidenceSubmission.status, 409);
   assert.equal(evidenceSubmissionCount, 1, "duplicate evidence submission must be blocked locally");
+
+  const aiWorkerContract = await createReferenceContract("2.00");
+  assert.equal(aiWorkerContract.status, 200, JSON.stringify(aiWorkerContract.data));
+  const aiWorkerRoute = "/api/authorizations/AUTH_TEST_1/reference-contracts/" +
+    encodeURIComponent(aiWorkerContract.data.contract.contractId) + "/ai-worker-submit";
+  const missingAiConsent = await requestJson(appBaseUrl, aiWorkerRoute, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  assert.equal(missingAiConsent.status, 400);
+  assert.equal(aiWorkerCallCount, 0, "buyer data must not be sent without explicit consent");
+
+  const generatedAiWorkerSubmission = await requestJson(appBaseUrl, aiWorkerRoute, {
+    method: "POST",
+    body: JSON.stringify({ consentToSendBuyerData: true }),
+  });
+  assert.equal(generatedAiWorkerSubmission.status, 200, JSON.stringify(generatedAiWorkerSubmission.data));
+  assert.equal(generatedAiWorkerSubmission.data.task.verification, "FAIL",
+    "the deterministic verifier must reject the AI-generated incorrect total");
+  assert.equal(generatedAiWorkerSubmission.data.task.verificationSource, "reference-backed");
+  assert.equal(generatedAiWorkerSubmission.data.aiWorker.provider, "groq");
+  assert.equal(generatedAiWorkerSubmission.data.aiWorker.model, "test-worker-model");
+  assert.equal(generatedAiWorkerSubmission.data.paymentOutcome, "NOT_ATTEMPTED");
+  assert.equal(
+    generatedAiWorkerSubmission.data.checks.find((check) => check.id === "derived:lineTotal").passed,
+    false,
+  );
+  assert.equal(
+    generatedAiWorkerSubmission.data.task.evidence.workerGeneration.outputSha256,
+    generatedAiWorkerSubmission.data.aiWorker.outputSha256,
+  );
+  assert.equal(aiWorkerCallCount, 1);
+  assert.equal(captureCount, 2, "AI worker generation and deterministic verification must not call PayPal capture");
+
+  const duplicateAiWorkerSubmission = await requestJson(appBaseUrl, aiWorkerRoute, {
+    method: "POST",
+    body: JSON.stringify({ consentToSendBuyerData: true }),
+  });
+  assert.equal(duplicateAiWorkerSubmission.status, 409, "a contract may be submitted only once");
+  assert.equal(aiWorkerCallCount, 1, "a submitted contract must not trigger another AI request");
 
   const blockedByOpenContract = await requestJson(
     appBaseUrl,
