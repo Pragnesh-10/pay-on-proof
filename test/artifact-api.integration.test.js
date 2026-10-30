@@ -419,6 +419,31 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   assert.ok(acceptedSubmission.data.task.acceptance.sourceArtifact.sha256);
   assert.ok(acceptedSubmission.data.task.evidence.outputArtifactSha256);
 
+  // The $15 capture plus the submitted $11 PASS reservation leaves exactly $24.
+  const largeOpenContract = await createReferenceContract("24.00");
+  assert.equal(largeOpenContract.status, 200, JSON.stringify(largeOpenContract.data));
+  const overBudgetContract = await createReferenceContract("25.00");
+  assert.equal(overBudgetContract.status, 409, "new contracts must account for existing captures and reservations");
+
+  const reservedArtifact = await requestJson(appBaseUrl, "/api/authorizations/AUTH_TEST_1/artifact-tasks", {
+    method: "POST",
+    body: JSON.stringify({
+      fileName: "reserved-budget.json",
+      format: "json",
+      content: passContent,
+      amount: "5.00",
+      criteria: passingCriteria,
+    }),
+  });
+  assert.equal(reservedArtifact.status, 200);
+  const blockedBySubmittedPass = await requestJson(
+    appBaseUrl,
+    "/api/authorizations/AUTH_TEST_1/artifact-tasks/" +
+      encodeURIComponent(reservedArtifact.data.task.taskId) + "/capture",
+    { method: "POST", body: "{}" },
+  );
+  assert.equal(blockedBySubmittedPass.status, 409, "a submitted PASS keeps its amount reserved until capture");
+
   const referenceCapture = await requestJson(
     appBaseUrl,
     "/api/authorizations/AUTH_TEST_1/artifact-tasks/" +
@@ -429,6 +454,59 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   assert.equal(referenceCapture.data.task.captureStatus, "COMPLETED");
   assert.equal(referenceCapture.data.paymentOutcome, "CAPTURE_COMPLETED");
   assert.equal(captureCount, 2, "only the independently verified PASS task reaches PayPal");
+
+  const blockedByOpenContract = await requestJson(
+    appBaseUrl,
+    "/api/authorizations/AUTH_TEST_1/artifact-tasks/" +
+      encodeURIComponent(reservedArtifact.data.task.taskId) + "/capture",
+    { method: "POST", body: "{}" },
+  );
+  assert.equal(blockedByOpenContract.status, 409, "an OPEN contract must reserve its agreed amount");
+
+  const failedReservedSubmission = await requestJson(
+    appBaseUrl,
+    "/api/authorizations/AUTH_TEST_1/reference-contracts/" +
+      encodeURIComponent(largeOpenContract.data.contract.contractId) + "/submit",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        outputFileName: "incorrect-reserved-output.json",
+        outputFormat: "json",
+        outputContent: badWorkerOutput,
+      }),
+    },
+  );
+  assert.equal(failedReservedSubmission.status, 200);
+  assert.equal(failedReservedSubmission.data.task.verification, "FAIL");
+  assert.equal(failedReservedSubmission.data.paymentOutcome, "NOT_ATTEMPTED");
+
+  const releasedReservationCapture = await requestJson(
+    appBaseUrl,
+    "/api/authorizations/AUTH_TEST_1/artifact-tasks/" +
+      encodeURIComponent(reservedArtifact.data.task.taskId) + "/capture",
+    { method: "POST", body: "{}" },
+  );
+  assert.equal(releasedReservationCapture.status, 200, "FAIL submission must release its reserved amount");
+  assert.equal(releasedReservationCapture.data.task.captureStatus, "COMPLETED");
+  assert.equal(captureCount, 3);
+
+  const voidReservedContract = await createReferenceContract("19.00");
+  assert.equal(voidReservedContract.status, 200, "remaining $19.00 should be reservable exactly");
+  const blockedVoidWithReservation = await requestJson(
+    appBaseUrl, "/api/authorizations/AUTH_TEST_1/void", { method: "POST", body: "{}" },
+  );
+  assert.equal(blockedVoidWithReservation.status, 409, "void must not discard an outstanding contract reservation");
+  assert.equal(voidCount, 0);
+  const cancelledContract = await requestJson(
+    appBaseUrl,
+    "/api/authorizations/AUTH_TEST_1/reference-contracts/" +
+      encodeURIComponent(voidReservedContract.data.contract.contractId) + "/cancel",
+    { method: "POST", body: "{}" },
+  );
+  assert.equal(cancelledContract.status, 200);
+  assert.equal(cancelledContract.data.status, "CANCELLED");
+  assert.equal(cancelledContract.data.reservedAmountReleased, "19.00");
+  assert.equal(cancelledContract.data.paymentSideEffects, false);
 
   const referenceReceiptCheck = await requestJson(appBaseUrl, "/api/receipts/verify", {
     method: "POST",
@@ -444,7 +522,7 @@ test("artifact API previews without payment, blocks failed captures, and verifie
     { method: "POST", body: "{}" },
   );
   assert.equal(duplicateCapture.status, 409);
-  assert.equal(captureCount, 2, "duplicate task capture must be blocked");
+  assert.equal(captureCount, 3, "duplicate task capture must be blocked");
 
   const receiptCheck = await requestJson(appBaseUrl, "/api/receipts/verify", {
     method: "POST",
@@ -490,7 +568,7 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   assert.equal(timeoutCapture.status, 200);
   assert.equal(timeoutCapture.data.task.captureStatus, "UNKNOWN");
   assert.equal(timeoutCapture.data.paymentOutcome, "OUTCOME_UNCERTAIN");
-  assert.equal(captureCount, 3, "the mock provider accepted the capture despite dropping its response");
+  assert.equal(captureCount, 4, "the mock provider accepted the capture despite dropping its response");
 
   const blockedVoidDuringUnknown = await requestJson(
     appBaseUrl, "/api/authorizations/AUTH_TEST_1/void", { method: "POST", body: "{}" },
@@ -540,7 +618,7 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   );
   assert.equal(pendingCapture.status, 200);
   assert.equal(pendingCapture.data.task.captureStatus, "PENDING");
-  assert.equal(captureCount, 4);
+  assert.equal(captureCount, 5);
 
   const blockedVoidDuringPending = await requestJson(
     appBaseUrl, "/api/authorizations/AUTH_TEST_1/void", { method: "POST", body: "{}" },
