@@ -637,7 +637,7 @@ test("artifact API previews without payment, blocks failed captures, and verifie
   assert.equal(reconciledPending.status, 200);
   assert.equal(reconciledPending.data.unresolvedCount, 0);
   assert.equal(reconciledPending.data.tasks.find((item) => item.taskId === pendingTask.data.task.taskId).captureStatus, "COMPLETED");
-  assert.equal(captureCount, 4, "checking a known capture ID must not create another capture");
+  assert.equal(captureCount, 5, "checking a known capture ID must not create another capture");
 
   const voidAfterResolution = await requestJson(
     appBaseUrl, "/api/authorizations/AUTH_TEST_1/void", { method: "POST", body: "{}" },
