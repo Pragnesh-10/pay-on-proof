@@ -27,7 +27,7 @@ Do not claim a fully autonomous worker agent or a complete agentic marketplace y
 - Saves verified artifacts as task records on a selected sandbox authorization and allows a separate explicit capture action only for a recorded PASS artifact task.
 - Adds buyer-reference verification for JSON/CSV data-reconciliation tasks. A buyer freezes source rows, key field, preserved fields, amount, and deterministic formulas before submission. The worker output is checked for duplicate keys, missing/extra records, modified source fields, and incorrect derived values.
 - Stores the buyer source rows in the local state file so the worker submission route uses the frozen contract rather than replacement rules or source data supplied with the output. A contract accepts one submission; a failed result requires a newly approved contract.
-- Adds a confirmed, bounded artifact agent workflow that chains verify → save → capture for a newly recorded PASS. REVIEW and FAIL stop before capture; reused task records are never auto-captured again, and uncertain outcomes are routed toward reconciliation.
+- Adds a confirmed artifact-processing workflow that chains verification, task recording, and one capture request for a newly recorded PASS. REVIEW and FAIL stop before capture; reused task records are never auto-captured again, and uncertain outcomes require reconciliation.
 - Recomputes Proof Receipt integrity hashes, with an optional comparison against the original artifact bytes.
 - Includes an optional labelled synthetic Groq evaluation script that reports false-pass, false-fail, review, exact-match, provider-error, and latency metrics. The small authored fixture set is not a validated benchmark.
 
