@@ -28,7 +28,7 @@ The buyer creates a contract on an active sandbox authorization before output su
 
 ## What happens if the worker submits fake success flags?
 
-The reference-backed route does not read or trust worker-supplied pass booleans. It checks the worker's actual parsed output rows and recalculates the contracted formulas from buyer-source values. For example, the invoice demo rejects a `lineTotal` that does not equal `quantity × unitPrice`.
+The reference-backed route does not read or trust worker-supplied pass booleans. It checks the worker's actual parsed output rows and limits output fields to the contracted columns, and recalculates formulas from buyer-source values. For example, the invoice demo rejects a `lineTotal` that does not equal `quantity × unitPrice`.
 
 ## Can it detect every kind of fraud or bad work?
 
@@ -37,6 +37,10 @@ No. The reference verifier proves only its explicit checks: keys, record coverag
 ## Can a contract be changed after the worker submits?
 
 A reference contract is stored before submission and accepts one submission. The worker route uses the stored source rows and criteria rather than accepting replacements. A failed submission is retained; a revised attempt needs a newly approved contract. The current prototype has no authenticated buyer identity, so this is a local workflow control rather than a production authorization guarantee.
+
+## How do you test adversarial submissions?
+
+The reference verifier has unit and mock-provider integration tests for incorrect totals, altered formula inputs, duplicate/missing/unexpected records, uncontracted output columns, malformed JSON, duplicate submissions, and budget conflicts. `npm run evaluate:reference` runs eight authored synthetic cases and reports false-PASS and false-reject counts. This is a regression fixture set, not a validated production accuracy benchmark.
 
 ## Does the system use AI to verify the invoice output?
 
