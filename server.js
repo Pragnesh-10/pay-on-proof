@@ -2322,8 +2322,10 @@ app.post(
     let sandboxApiUrl = false;
     try {
       const paypalUrl = new URL(PAYPAL_BASE_URL);
-      const isPaypalSandboxHost = /(^|\\.)sandbox(\\.|$)/i.test(paypalUrl.hostname);
+      const isPaypalSandboxHost = paypalUrl.protocol === "https:" &&
+        ["api-m.sandbox.paypal.com", "api.sandbox.paypal.com"].includes(paypalUrl.hostname);
       const isLoopbackTestHost = process.env.NODE_ENV === "test" &&
+        paypalUrl.protocol === "http:" &&
         ["127.0.0.1", "::1", "localhost"].includes(paypalUrl.hostname);
       sandboxApiUrl = isPaypalSandboxHost || isLoopbackTestHost;
     } catch {
@@ -2442,7 +2444,12 @@ app.post(
         evidenceType: "OTHER",
         status: "SUBMITTED",
         packageSha256: context.evidencePackage.packageSha256,
-        paypalResponse: response,
+        paypalResponse: {
+          disputeId: response.dispute_id || disputeId,
+          links: Array.isArray(response.links)
+            ? response.links.filter((link) => ["self", "dispute"].includes(link.rel))
+            : [],
+        },
         message: "PayPal accepted the evidence submission request. This does not predict or guarantee the dispute outcome.",
       });
     } catch (error) {
