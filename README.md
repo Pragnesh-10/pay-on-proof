@@ -108,6 +108,7 @@ Failure recovery is covered with a local mock-provider integration test: a lost 
 - [Demo runbook](docs/DEMO_RUNBOOK.md) — clean setup, safe demo sequence, expected outcome, and recovery steps.
 - [Architecture](docs/ARCHITECTURE.md) — components, decision flow, data persistence, and trust boundaries.
 - [Judge Q&A](docs/JUDGE_QA.md) — concise, honest answers to likely technical and product questions.
+- [Dispute evidence guide](docs/DISPUTE_EVIDENCE.md) — PayPal sandbox setup, matching rules, supported evidence, and explicit submission safeguards.
 
 The repository is released under the [MIT License](LICENSE).
 
